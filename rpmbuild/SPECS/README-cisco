@@ -1,0 +1,19 @@
+The spec file content in this directory should represent branches
+of publicly available packages.  Using the convention of appending
+the release string with ".%{cisco_release}.cisco" ensures that
+the locally modified package will always update the unmodified
+version of the same package and that there will be no yum repository
+conflicts.  Maintaining branch history in this way ensures an
+easier path to package updates using a branch merge.
+
+To use:
+	1) check out the rpmbuild tree,
+	2) add "%_topdir <path to checkout>" to ~/.rpmmacros,
+	3) use "rpm -ivh <path to checkout>/SRPMS/<unmodified SRPM>" --
+		do NOT use sudo,
+	4) modify the *cisco.spec file, as needed -- remember to update
+		the changelog,
+	5) use "rpmbuild -ba -D'dist .el5' -D'cisco_release <x>' <specfile> --
+		the cisco release MUST be incremented to avoid repo conflicts,
+	6) after testing, commit changes, and copy the resulting RPM(s) and
+		SRPM to the YUM repo and regenerate the metadata.

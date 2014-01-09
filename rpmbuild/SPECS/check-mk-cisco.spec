@@ -2,21 +2,27 @@
 
 Name:		check-mk
 Version:	1.2.2p2
-Release:	3%{?dist}
+Release:	3%{?dist}.%{cisco_release}.cisco
 Summary:	A new general purpose Nagios-plugin for retrieving data
 Group:		Applications/Internet
 License:	GPLv2 and GPLv3
 URL:		http://mathias-kettner.de/check_mk
 Source:		http://mathias-kettner.de/download/check_mk-%{version}.tar.gz
-Requires:	nagios
+Packager: Alex Yamauchi <ayamauch@cisco.com>
+
 %if 0%{?rhel}
 Requires:	mod_python
 %endif
 Source1:	First-Installation.txt
 Source2:	defaults
 Source3:	defaults.py
+
+Patch100:	cisco_check-mk_xinetd-fixes.patch
+
 AutoReq:	0
 BuildRoot:	%(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
+BuildRequires: gcc
+BuildRequires: gcc-c++
 
 %description
 check-mk is a general purpose Nagios-plugin for retrieving data. It adopts a
@@ -27,7 +33,6 @@ the Nagios host and an automatic inventory of items to be checked on hosts.
 
 %package agent
 Summary:	The check-mk's Agent
-Requires:	xinetd
 Group:		Applications/Internet
 
 %description agent
@@ -48,8 +53,6 @@ This package contains the check-mk's documentation files.
 %package livestatus
 Summary:	The check-mk's Livestatus
 Group:		Applications/Internet
-Requires:	check-mk
-Requires:	%{name}%{?_isa} = %{version}-%{release}
 
 %description livestatus
 This package contains livestatus, the check-mk's plugin for
@@ -68,6 +71,8 @@ This package contains the check-mk's web interface aka WATO.
 %setup -q -n check_mk-%{version}
 tar xf agents.tar.gz
 
+%patch100 -p1
+
 %build
 rm -f waitmax
 make waitmax
@@ -75,9 +80,6 @@ make waitmax
 %install
 
 # Agent's installation
-
-install -d -m 755 %{buildroot}%{_sysconfdir}/xinetd.d
-install -m 644 xinetd.conf %{buildroot}%{_sysconfdir}/xinetd.d/check-mk-agent
 
 install -d -m 755 %{buildroot}%{_bindir}
 install -m 755 check_mk_agent.linux %{buildroot}%{_bindir}/check_mk_agent
@@ -88,6 +90,10 @@ install -m 755 waitmax %{buildroot}%{_bindir}/waitmax
 install -d -m 755 %{buildroot}%{_datadir}/check-mk-agent
 install -d -m 755 %{buildroot}%{_datadir}/check-mk-agent/plugins
 install -d -m 755 %{buildroot}%{_datadir}/check-mk-agent/local
+
+install -m 644 xinetd.conf %{buildroot}%{_datadir}/check-mk-agent/xinetd.conf
+install -m 644 xinetd_caching.conf %{buildroot}%{_datadir}/check-mk-agent/xinetd_caching.conf
+
 install -m 644 plugins/mk_logwatch %{buildroot}%{_datadir}/check-mk-agent/plugins
 install -m 644 plugins/j4p_performance %{buildroot}%{_datadir}/check-mk-agent/plugins
 install -m 644 plugins/mk_oracle %{buildroot}%{_datadir}/check-mk-agent/plugins
@@ -104,6 +110,10 @@ perl -pi \
 # Server, livestatus and other modules installation
 
 DESTDIR=%{buildroot} ./setup.sh --yes
+
+install -d -m 755 %{buildroot}%{_datadir}/check-mk-livestatus
+
+install -m 644 xinetd_livestatus.conf %{buildroot}%{_datadir}/check-mk-livestatus/xinetd.conf
 
 # Some needed tweaks to modify setup.sh's defaults.
 
@@ -217,7 +227,6 @@ rmdir %{buildroot}%{_prefix}/lib/check_mk
 %{_bindir}/check_mk_agent
 %{_bindir}/waitmax
 %{_datadir}/check-mk-agent
-%config(noreplace) %{_sysconfdir}/xinetd.d/check-mk-agent
 %config(noreplace) %{_sysconfdir}/check-mk-agent
 %doc COPYING
 
@@ -234,6 +243,7 @@ rmdir %{buildroot}%{_prefix}/lib/check_mk
 %files livestatus
 %{_bindir}/unixcat
 %{_libdir}/check_mk/*
+%{_datadir}/check-mk-livestatus
 
 %changelog
 * Wed Oct 02 2013 Andrea Veri <averi@fedoraproject.org> - 1.2.2p2-3

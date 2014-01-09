@@ -1,0 +1,52 @@
+diff -ur --new-file check_mk-1.2.2p2.orig/xinetd_caching.conf check_mk-1.2.2p2/xinetd_caching.conf
+--- check_mk-1.2.2p2.orig/xinetd_caching.conf	2013-05-24 06:34:50.000000000 -0700
++++ check_mk-1.2.2p2/xinetd_caching.conf	2013-12-12 11:34:05.000000000 -0800
+@@ -44,5 +44,5 @@
+ 	# the default options will be used for this service.
+ 	log_on_success =
+ 
+-	disable        = no
++	disable        = yes
+ }
+diff -ur --new-file check_mk-1.2.2p2.orig/xinetd.conf check_mk-1.2.2p2/xinetd.conf
+--- check_mk-1.2.2p2.orig/xinetd.conf	2013-05-24 06:34:50.000000000 -0700
++++ check_mk-1.2.2p2/xinetd.conf	2013-12-12 11:34:22.000000000 -0800
+@@ -45,5 +45,5 @@
+ 	# the default options will be used for this service.
+ 	log_on_success =
+ 
+-	disable        = no
++	disable        = yes
+ }
+diff -ur --new-file check_mk-1.2.2p2.orig/xinetd_livestatus.conf check_mk-1.2.2p2/xinetd_livestatus.conf
+--- check_mk-1.2.2p2.orig/xinetd_livestatus.conf	1969-12-31 16:00:00.000000000 -0800
++++ check_mk-1.2.2p2/xinetd_livestatus.conf	2013-12-12 11:36:10.000000000 -0800
+@@ -0,0 +1,28 @@
++service check_mk-livestatus
++{
++	type		= UNLISTED
++	port		= 6557
++	socket_type	= stream
++	protocol	= tcp
++	wait		= no
++# limit to 100 connections per second. Disable 3 secs if above.
++	cps             = 100 10
++# set the number of maximum allowed parallel instances of unixcat.
++# Please make sure that this values is at least as high as
++# the number of threads defined with num_client_threads in
++# etc/mk-livestatus/nagios.cfg
++        instances       = 500
++# limit the maximum number of simultaneous connections from
++# one source IP address
++        per_source      = 500
++# Disable TCP delay, makes connection more responsive
++	flags           = NODELAY
++	user		= nagios
++	server		= /usr/bin/unixcat
++	server_args     = /var/nagios/rw/live
++	server_args      = /usr/local/nagios/var/rw/live
++# configure the IP address(es) of your Nagios server here:
++#	only_from       = 127.0.0.1 10.0.20.1 10.0.20.2
++# Change this to "no" to enable this service, then reload xinetd.
++	disable		= yes
++}

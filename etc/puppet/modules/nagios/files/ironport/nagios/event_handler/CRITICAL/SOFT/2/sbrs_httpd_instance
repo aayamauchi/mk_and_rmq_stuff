@@ -1,0 +1,19 @@
+#!/bin/bash
+#==============================================================================
+# sbrs_httpd_instance
+# Restarts httpd on problem sbrs www host.
+#==============================================================================
+# Restart
+CMD="sudo /usr/local/etc/rc.d/apache22 restart"
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}" 2>&1
+
+# Notify, H_NAME - try to send notification with hostname instead of ip address
+H_NAME=`dig -x ${NAGIOS_HOSTADDRESS} +short 2>/dev/null | head -1 | sed 's/\.$//'`
+if [ "${H_NAME}" = ""]; then
+    H_NAME="${NAGIOS_HOSTADDRESS}"
+fi
+MESG="Nagios issued restart of httpd on ${H_NAME}. Will escalate if not successful."
+/usr/local/ironport/nagios/bin/ironcat.sh "${MESG}" 2>&1
+echo "${MESG}" | mail -s "Nagios event handler triggered: sbrs_httpd_instance" stbu-ops-alerts@cisco.com 2>&1
+
+exit 0

@@ -1,0 +1,7 @@
+echo "There is invalid data in the database:"
+echo "   sbnp-rdb1.soma.ironport.com summary statistics are invalid"
+echo ""
+echo "The SBNP Reputation Data app needs to be restarted with truncated"
+echo "stats tables. See the SBNPReputationDataService Twiki document to"
+echo "perform a recovery."
+

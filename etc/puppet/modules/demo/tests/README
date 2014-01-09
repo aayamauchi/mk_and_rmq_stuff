@@ -1,0 +1,14 @@
+#
+# $Id: //sysops/main/puppet/test/modules/demo/tests/README#1 $
+# $DateTime: 2012/01/22 15:04:32 $
+# $Change: 457650 $
+# $Author: mhoskins $
+#
+
+IMPORTANT NOTE
+--------------
+
+Place simple test declarations here, one-per-class, so they can be
+easily ran with puppet apply. You can also use puppet apply --execute
+"class { 'your-class': }" or --execute "include class".
+

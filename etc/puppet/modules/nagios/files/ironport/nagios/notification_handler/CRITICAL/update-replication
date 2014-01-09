@@ -1,0 +1,31 @@
+#!/usr/local/bin/bash
+#==============================================================================
+# update-replication
+#
+# Notification handler for update-replication.
+# Outputs errors for production hosts only.
+#
+# 2012-09-11 jramache
+#==============================================================================
+NAGIOSSTATC="/usr/local/ironport/nagios/bin/nagiosstatc"
+LOG_FILE="/tmp/update-repl.out"
+ENVIRONMENT="prod"
+LOG_HOST="${NAGIOS_HOSTADDRESS}"
+
+HOSTS=`${NAGIOSSTATC} -q "status service ${LOG_HOST} update-replication long_plugin_output" | awk -F'"' '{print $6}' | sed 's/\\\\n/:/g' | awk 'BEGIN {RS=":"} {print $0}'|grep -- "^/tmp/update-repl\.${ENVIRONMENT}\." | awk -F'.' '{for (x=3; x<(NF-1); x++) { printf("%s.",$x); } print $(NF-1); }'`
+
+echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+echo "   PRODUCTION UPDATE REPLICATION ERRORS"
+echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+ERRORS=0
+for H in ${HOSTS}
+do
+    egrep -i -- "^error.*${H}" "${LOG_FILE}"
+    if [ ${?} -eq 0 ]; then
+        ERRORS=1
+    fi
+done
+if [ ${ERRORS} -eq 0 ]; then
+    echo "No ${ENVIRONMENT} errors were found in the update-replication log."
+fi
+echo

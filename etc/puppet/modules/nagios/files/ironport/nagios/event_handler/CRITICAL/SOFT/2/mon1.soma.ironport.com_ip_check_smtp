@@ -1,0 +1,8 @@
+#!/usr/local/bin/bash
+
+CMD="sudo /etc/init.d/postfix restart"
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}"
+/bin/echo "Problem with Postfix on ${NAGIOS_HOSTADDRESS}, restart attempted.  \
+Will escalate if problem continues." | /bin/mail -s "Nagios notification issue" miklinds@cisco.com
+#Will escalate if problem continues." | /bin/mail -s "Nagios notification issue" systemops@ironport.com
+

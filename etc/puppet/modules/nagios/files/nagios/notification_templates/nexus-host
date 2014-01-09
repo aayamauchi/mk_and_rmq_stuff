@@ -1,0 +1,33 @@
+# template format allows for newlines in text, but must
+# be denoted with both \n and a literal newline.
+# newlines are removed before JSON processing.
+# 
+# Any line starting with a # is removed as well.
+{
+"notification_type": "nexus",
+"proto": "https",
+"host": "66.187.221.90",
+"port": "9443",
+"url": "/alert/services/AlertPublisherService?wsdl",
+"emsid": "mon.ops.ironport.com",
+"emstype": 20,
+"momid": "mon.ops.ironport.com",
+"momtype": 21,
+"firstepoch": "{% env STATECHANGE %}",
+"alarmcode": "{% env ALARMCODE %}",
+"stateful": "{% if env STATEFUL %}{% env STATEFUL %}{% else %}0{% endif %}",
+"isticket": 1,
+"nofooter": 1,
+"detaillink": "https://mon.ops.ironport.com/nagios/cgi-bin/extui.py?host={% env HOSTNAME %}",
+# UNUSED
+"subject": "",
+# Alert text
+"body": "
+Host: {% env HOSTNAME %} ({% env HOSTADDRESS %})\n
+Output:\n
+{% env OUTPUT %}\n
+{% if env LONGOUTPUT %}
+{% env LONGOUTPUT %}\n
+{% endif %}
+\n"
+}

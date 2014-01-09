@@ -1,0 +1,16 @@
+#!/usr/local/bin/bash
+
+if [[ "$NAGIOS_SERVICEOUTPUT" == *not\ authenticated* ]]; then
+    HOST=`echo $NAGIOS_LONGSERVICEOUTPUT | tail -1 | awk '{ print $1 }' | awk -F: '{ print $2 }'`
+
+    CMD="rm /tmp/vmsess.${NAGIOS_HOSTNAME}"
+    /usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${HOST} "${CMD}"
+
+    MESG="The following command was executed on ${HOST} in response to\n"
+    MESG="${MESG}${NAGIOS_SERVICEOUTPUT}\n${NAGIOS_LONGSERVICEOUTPUT}\n\n"
+    MESG="${MESG}$0 (CRITICAL/SOFT/1):\n\n"
+    MESG="${MESG}${CMD}\n\n"
+    MESG="${MESG}Will escalate if problem continues."
+    printf "%b" "${MESG}" | mail -s "NAGIOS event: VM session" miklinds@cisco.com
+fi
+

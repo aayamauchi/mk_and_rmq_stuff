@@ -1,0 +1,4 @@
+TIMEOUT=/usr/local/ironport/nagios/bin/timeout.pl
+
+echo SBRS BAD Rule_IDs
+echo "SELECT rule_id FROM reputation.rule_data WHERE rule_id > 113" | $TIMEOUT 5 mysql -u nagios -pthaxu1T -h${NAGIOS_HOSTADDRESS}

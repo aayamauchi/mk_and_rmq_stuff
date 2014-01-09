@@ -1,0 +1,7 @@
+OUT=`/usr/local/ironport/nagios/customplugins/check_mysql_process.py -H ${NAGIOS_HOSTADDRESS} -unagios -pthaxu1T -c 600 -P -I 'SELECT GET_LOCK' --kill`
+OUT="$OUT\n`/usr/local/ironport/nagios/customplugins/check_mysql_process.py -H ${NAGIOS_HOSTADDRESS} -unagios -pthaxu1T -c 60 -P -I 'SELECT GET_LOCK' --killdupes`"
+
+if [ "${OUT}" != "" ]
+then
+    /usr/bin/printf "%b" "${OUT}" | /bin/mail -s "${NAGIOS_HOSTADDRESS} GET_LOCK Killin' report." stbu-dbas@cisco.com,stbu-monitoring-notifications@cisco.com
+fi

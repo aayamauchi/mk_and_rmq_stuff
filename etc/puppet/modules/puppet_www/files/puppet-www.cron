@@ -1,0 +1,4 @@
+# NOTE: This file is managed by Puppet
+# run puppet bootstrap to sync latest scripts/manifests
+*/30 * * * * root /usr/bin/curl -s puppet.ironport.com/bootstrap.sh | /bin/bash >/dev/null
+*/35 * * * * root /bin/cp /etc/puppet/scripts/bootstrap.sh /var/www/html/

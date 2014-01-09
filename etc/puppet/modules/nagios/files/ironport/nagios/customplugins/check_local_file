@@ -1,0 +1,41 @@
+#!/bin/env bash
+
+PROGNAME=`basename $0`
+NAGIOS_UTILS=/usr/lib64/nagios/plugins/utils.sh
+[[ -x ${NAGIOS_UTILS} ]] && . ${NAGIOS_UTILS} || {
+    STATE_OK=0
+    STATE_WARNING=1
+    STATE_CRITICAL=2
+    STATE_UNKNOWN=3
+}
+
+USAGE=$( cat << EOM
+Script for generate Nagios notifications. Usage: \"$0 <file_name>\"
+How it works:
+ no file -- CRIT            # remove fake_check_file 
+ empty file -- WARN         # touch /tmp/fake_check_file
+ file with text --- OK      # echo "hooray" > /tmp/fake_check_file
+ Please manipulate to take alerts.
+EOM
+)
+
+if [ "$1" == "" ];then
+	echo -e " UNKNOWN: Use \"$PROGNAME <file_name>\", ie : $PROGNAME /tmp/fake_check_file \n "
+	echo "${USAGE}"
+	exit $STATE_UNKNOWN
+fi
+
+
+if [[ -f $1 ]]; then
+    if [[ -s $1 ]] ; then
+        echo "OK - $1 : EXISTS :: `head -3 $1`"
+		exit $STATE_OK
+    else
+        echo "WARNING - $1 : exists but empty"
+		exit $STATE_WARNING
+    fi
+else
+    echo "CRITICAL : $1 does not exists "
+    exit $STATE_CRITICAL
+fi
+

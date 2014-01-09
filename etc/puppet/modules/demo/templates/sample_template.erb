@@ -1,0 +1,16 @@
+# This is an ERB template.
+# http://docs.puppetlabs.com/guides/templating.html
+
+# Use some default facts...
+Welcome to <%= fqdn %> running <%= operatingsystem %>!
+
+Puppet version: <%= puppetversion %>
+Facter version: <%= facterversion %>
+  Ruby version: <%= rubyversion %>
+
+<% if has_variable?("virtual") then %>
+Uhoh, it looks like we're running on a <%= virtual %> host!
+<% end %>
+
+# A custom fact!
+myhome.rb supplied <%= myhome %>

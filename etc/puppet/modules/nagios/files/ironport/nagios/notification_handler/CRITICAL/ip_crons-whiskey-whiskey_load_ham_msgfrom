@@ -1,0 +1,55 @@
+#!/usr/local/bin/bash
+#==============================================================================
+# ip_crons-whiskey-whiskey_load_ham_GENERIC
+#
+# NOTE: This script is sym linked to from various scripts with the actual
+# crons name in them.
+#
+# SPECIFICALLY LOOKS FOR WHISKEY DATABASE ERRORS WHEN THE CRON LOCKS:
+# https://opswiki.ironport.com/bin/view/Main/WhiskeyOpsDoc#Rebuilding_a_ham_database
+#
+# THESE DB ERROR NOTIFICATION HANDLERS CAN LIKELY BE DELETED WHEN THIS BUG
+# HAS BEEN RESOLVED:
+#      https://bugs.ironport.com/show_bug.cgi?id=72960
+#
+# 2011-05-25 jramache
+#==============================================================================
+BASENAME=`basename "${0}"`
+CRONS_COMMAND=`echo "${BASENAME}" | sed 's/^ip_crons-whiskey-//'`
+LOGFILEBASE=`echo "${CRONS_COMMAND}" | sed 's/_load//'`
+
+ASDB="asdb.ironport.com"
+DBUSER="nagios"
+DBPASS="thaxu1T"
+DB="whiskey"
+
+# Get name of host where job locked
+LOCKHOST=`mysql --silent --batch --user=${DBUSER} --password=${DBPASS} --host=${NAGIOS_HOSTADDRESS} --execute="select hostname from crons where command='${CRONS_COMMAND}' limit 1" ${DB} 2>/dev/null`
+if [ "${LOCKHOST}" = "" ]; then
+    exit 1
+fi
+if [ "`dig ${LOCKHOST} +short`" = "" ]; then
+    exit 1
+fi
+
+# Select the correct syslog server
+LOCATION=`expr "${LOCKHOST}" : '.*\.\(.*\)\.ironport\.com'`
+SYSLOG=`fetch -q -o - "http://${ASDB}/servers/list/?product__name=ops&environment__name=ops&purpose__name=syslog&location__name=${LOCATION}" 2>/dev/null | awk '{print $1}' 2>/dev/null`
+if [ "${SYSLOG}" = "" ]; then
+    # then just use the soma syslog server
+    SYSLOG=`fetch -q -o - "http://${ASDB}/servers/list/?product__name=ops&environment__name=ops&purpose__name=syslog&location__name=soma" 2>/dev/null | awk '{print $1}' 2>/dev/null`
+fi
+
+# Look for error in today's log on the syslog server
+TODAY=`date +"%Y%m%d"`
+DBERROR=`/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${SYSLOG} "grep -B11 DBNotFoundError /logs/servers/${LOCKHOST}/ironport/${LOGFILEBASE}-${TODAY}.log 2>/dev/null | tail -12"`
+if [ "${DBERROR}" != "" ]; then
+    echo "POSSIBLE HAM DATABASE ERROR DETECTED IN LOGS"
+    echo "Therefore, you may need to rebuild the ham database:"
+    echo "https://opswiki.ironport.com/bin/view/Main/WhiskeyOpsDoc#Rebuilding_a_ham_database"
+    echo
+    echo "Crons execution host: ${LOCKHOST}"
+    echo "Log server: ${SYSLOG}"
+    echo "Log file: /logs/servers/${LOCKHOST}/ironport/${LOGFILEBASE}-${TODAY}.log"
+    echo "${DBERROR}"
+fi

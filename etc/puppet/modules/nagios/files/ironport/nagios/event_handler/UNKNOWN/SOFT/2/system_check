@@ -1,0 +1,27 @@
+#!/usr/local/bin/bash
+
+# We killall snmpd, because sometimes shutdown takes a -long- time, and we
+# don't care about a clean shutdown.
+
+CMD=`cat <<EOV
+if [ -x /usr/local/etc/rc.d/snmpd ]
+then
+    sudo killall -9 snmpd
+    sleep 2
+    sudo /usr/local/etc/rc.d/snmpd restart
+elif [ -x /usr/local/etc/rc.d/snmpd.sh ]
+then
+    sudo killall -9 snmpd
+    sleep 2
+    sudo /usr/local/etc/rc.d/snmpd.sh restart
+elif [ -x /etc/init.d/snmpd ]
+then
+    sudo killall -9 snmpd
+    sleep 2
+    sudo /etc/init.d/snmpd restart
+else
+    echo 'No init script found'
+fi
+EOV`
+
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "/usr/local/bin/bash -c \"${CMD}\""

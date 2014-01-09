@@ -1,0 +1,34 @@
+# template format allows for newlines in text, but must
+# be denoted with both \n and a literal newline.
+# newlines are removed before JSON processing.
+# 
+# Any line starting with a # is removed as well.
+{
+"notification_type": "jira",
+"project": "{% env _CONTACTPROJECT %}",
+"product": "{% env _HOSTPRODUCT %}",
+"environment": "{% env _HOSTENVIRONMENT %}",
+"purpose": "{% env _HOSTPURPOSE %}",
+"subject": "
+** {% env NOTIFICATIONTYPE %} alert - {% env HOSTNAME %} is 
+{% env HOSTSTATE %} **",
+"body": "
+*SCANSAFE*\n
+*Notification Type:* {% env NOTIFICATIONTYPE %} #{% env NOTIFICATIONNUMBER %}\n
+*Host:* {% env HOSTNAME %} ({% env HOSTADDRESS %})\n
+*Output:* {% env HOSTOUTPUT %}\n
+{% if env LONGHOSTOUTPUT %}
+{% env LONGHOSTOUTPUT %}\n
+{% endif %}
+{% if env HOSTACKAUTHOR %}
+*ACK [{% env HOSTACKAUTHOR %}] {% env HOSTACKCOMMENT %}*\n
+{% endif %}
+\n
+*Date/Time:* {% env LONGDATETIME %}\n
+\n
+# Action URLs are relative.
+#[{% env HOSTACTIONURL %}]\n
+#[{% env HOSTNOTESURL %}]\n
+#[{% env _HOSTSOURCE_URL %}]\n
+"
+}

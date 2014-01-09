@@ -1,0 +1,72 @@
+#!/usr/local/bin/bash
+
+PATH=/bin:/usr/bin:/usr/local/bin:/usr/local/ironport/nagios/bin
+CONTACTS=stbu-monitoring-notifications@cisco.com,wbrs-alerts@lists.ironport.com
+AGE=`stat --format=%Y /tmp/wbrs_make_incrementals-unlock-${NAGIOS_HOSTADDRESS}.lock 2>&1`
+NOW=`date +%s`
+DELTA=`echo ${NOW} - ${AGE} | bc`
+
+HOST=`echo ${NAGIOS_HOSTADDRESS} | cut -d\  -f 8`
+if [ ! -e /tmp/wbrs_make_incrementals-unlock-${NAGIOS_HOSTADDRESS}.lock ]
+then
+    # never been run for this host
+    touch /tmp/wbrs_make_incrementals-unlock-${NAGIOS_HOSTADDRESS}.lock
+    DELTA=7201
+fi
+
+if [ "${DELTA}" -lt "7200" ]
+then
+    # lockfile not old enough, exit
+    exit
+fi
+
+if [[ "${NAGIOS_SERVICEOUTPUT}" == *768* ]]
+then
+    touch /tmp/wbrs_make_incrementals-unlock-${NAGIOS_HOSTADDRESS}.lock
+    # Downtime, perform make_full_db
+    downtime -ghost -H ${NAGIOS_HOSTADDRESS} -S ip_crons-wbrs-make_incrementals -c "Automated Downtime" -unagios -E 3600
+    downtime -ghost -H ${NAGIOS_HOSTADDRESS} -S ip_crons-wbrs-make_full_dbs -c "Automated Downtime" -unagios -E 3600
+    OUT="Make Incrementals errored with 768, on ${HOST}\nSetting downtime and running make_full\n"
+    OUT=${OUT}"Some hopefully helpful log output:\n"
+    OUT=${OUT}`ssh ${HOST} "grep -B 2 -A 20 Traceback /data/ironportvar/make_incrementals-`date +%Y%m%d`.log | tail -23"`
+
+    for APP in `echo SELECT DISTINCT hostname FROM crons_history | mysql -unagios -pthaxu1T -N -h ${NAGIOS_HOSTADDRESS} wbrs`
+    do
+        ssh ${APP} "sudo /bin/rm -rf /tmp/make_incrementals_test /data/localwbrsdata/make_inc_work_dir"
+    done
+    
+    NULL=`echo SELECT mon_lock FROM crons WHERE command=\'make_full_dbs\' | mysql -unagios -pthaxu1T -h wbrs3-db1.vega.ironport.com wbrs`
+    if [ "${NULL}" != "NULL" ]
+    then
+        # Full already running.  sleep and unlock.
+        OUT=${OUT}"... Full already running, sleeping 30 minutes and clearing cron lock."
+        printf "%b" "${OUT}" | mail -s "${HOST} wbrs make_incrementals event handler" ${CONTACTS}
+        sleep 1800
+        SQL='UPDATE crons SET mon_lock=NULL, fail_count=0 WHERE command="make_incrementals"'
+        echo ${SQL} | mysql -u nagios -pthaxu1T -h ${NAGIOS_HOSTADDRESS} wbrs
+        exit
+    fi
+
+    printf "%b" "${OUT}" | mail -s "${HOST} wbrs make_incrementals event handler" ${CONTACTS}
+
+    SQL='UPDATE crons SET mon_lock="Automated nagios lock" WHERE command="make_full_dbs" AND mon_lock is NULL'
+    echo ${SQL} | mysql -u nagios -pthaxu1T -h ${NAGIOS_HOSTADDRESS} wbrs
+
+    ssh ${APP} "export CRONSARGS='-fc'; sudo -u wbrs /usr/local/ironport/wbrs/bin/make_full_dbs.sh -v2"
+    SQL='UPDATE crons SET mon_lock=NULL, fail_count=0 WHERE command="make_incrementals" or command="make_full_dbs"'
+    echo ${SQL} | mysql -u nagios -pthaxu1T -h ${NAGIOS_HOSTADDRESS} wbrs
+    
+
+elif [[ "${NAGIOS_SERVICEOUTPUT}" == *256* ]]
+then
+    then /tmp/wbrs_make_incrementals-unlock-${NAGIOS_HOSTADDRESS}.lock
+    # Downtime, unlock cron.
+    downtime -ghost -H ${NAGIOS_HOSTADDRESS} -S ip_crons-wbrs-make_incrementals -c "Automated Downtime" -unagios -E 3600
+    SQL='UPDATE crons SET mon_lock=NULL, fail_count=0 WHERE command="make_incrementals"'
+    echo ${SQL} | mysql -u nagios -pthaxu1T -h ${NAGIOS_HOSTADDRESS} wbrs
+    OUT="Make Incrementals errored with 256, on ${HOST}\nUnlocking and setting downtime.\n"
+    OUT=${OUT}"Some hopefully helpful log output:\n"
+    OUT=${OUT}`ssh ${HOST} "grep -B 2 -A 20 Traceback /data/ironportvar/make_incrementals-`date +%Y%m%d`.log | tail -23"`
+    printf "%b" "${OUT}" | mail -s "${HOST} wbrs make_incrementals event handler" ${CONTACTS}
+fi
+

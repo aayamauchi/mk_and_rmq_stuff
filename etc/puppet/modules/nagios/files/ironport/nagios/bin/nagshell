@@ -1,0 +1,980 @@
+#!/usr/bin/env python26
+# -*- coding: ascii -*-
+"""Interactive nagios curses shell.
+    Only read object or status file on first call
+    or when files change."""
+
+import platform
+import pwd
+import sys
+import os
+import simplejson
+import time
+import difflib
+import curses
+import traceback
+import pprint
+
+major, minor = platform.python_version().split('.')[0:2]
+pyver = float('%s.%s' % (major, minor))
+if pyver < 2.3:
+    print "Requires python 2.3.  2.4 or higher for improved functionality."
+    sys.exit(-1)
+elif pyver > 2.3:
+    import sets
+else:
+    from sets import Set as set
+
+from optparse import OptionParser
+
+# Global, so we don't need to reread the file each time.
+objects = {}
+status = {}
+object_index = {}
+status_index = {}
+
+# track function depth
+depth = 0
+
+states = {'host': { 0: 'UP',
+                    1: 'DOWN',
+                    2: 'UNREACHABLE',
+                    'UP': 0,
+                    'DOWN': 1,
+                    'UNREACHABLE': 2},
+        'service': { 0: 'OK',
+                     1: 'WARNING',
+                     2: 'CRITICAL',
+                     3: 'UNKNOWN',
+                    'OK': 0,
+                    'WARNING': 1,
+                    'CRITICAL': 2,
+                    'UNKNOWN': 3} }
+
+# Color hash
+color = {}
+
+def funcname(enter=True, forceverbose=False):
+    """Display function name of parent function"""
+    #try:
+    global depth
+    if forceverbose or options.verbose:
+    
+            if enter:
+                sys.stderr.write("%s>>DEBUG start - %s()\n" % (depth * '.', sys._getframe(1).f_code.co_name))
+                depth += 1
+            else:
+                depth -= 1
+                sys.stderr.write("%s>>DEBUG end   - %s()\n" % (depth * '.', sys._getframe(1).f_code.co_name))
+    #except NameError:
+        # options does not exist.
+    #    return
+
+def init():
+    global options
+    """collect option information, display help text if needed, set up debugging"""
+    parser = OptionParser()
+    default = {}
+    help = {}
+    help_strings = ['object', 'status', 'cmdspool']
+    default['status'] = '/usr/local/nagios/var/status.log'
+    default['object'] = '/usr/local/nagios/var/objects/cache'
+    default['cmdspool'] = '/usr/local/nagios/var/spool/nagios.cmd' 
+    help['status'] = 'Full path to Nagios status file.\n'
+    help['status'] += 'Default = %s' % (default['status'])
+    help['object'] = 'Full path to Nagios object.cache file.\n'
+    help['object'] += 'Default = %s' % (default['object'])
+    help['cmdspool'] = 'Full path to Nagios spool file.\n'
+    help['cmdspool'] += 'Default = %s' % (default['cmdspool'])
+    
+    help_ints = ['Height', 'Width', 'min_refresh']
+    default['Height'] = 50
+    default['Width'] = 78
+    default['min_refresh'] = 60
+    help['Height'] = 'Window height, default: %s' % (default['Height'])
+    help['Width'] = 'Window width, default: %s' % (default['Width'])
+    help['min_refresh'] = 'Minimum seconds to wait between refreshes, default: %s' % \
+            (default['min_refresh'])
+    for str in help_strings:
+        parser.add_option("-%s" % (str[0]), "--%s" % (str), type="string", dest=str,
+                                default=default[str], help=help[str])
+    for intry in help_ints:
+        parser.add_option("-%s" % (intry[0]), "--%s" % (intry), type="int", dest=intry,
+                                default=default[intry], help=help[intry])
+    parser.add_option("-v", "--verbose", action="store_true", dest="verbose",
+                            default=False,
+                            help="print debug messages to stderr")
+    (options, args) = parser.parse_args()
+    if options.verbose:
+        sys.stderr.write(">>DEBUG sys.argv[0] running in " +
+                                "debug mode\n")
+    funcname(True, options.verbose)
+    error = False
+    if not os.path.exists(options.object):
+        error = True
+        print "Object Cache file does not exist at '%s'" % (options.object)
+    if error:
+        parser.print_help()
+    funcname(False, options.verbose)
+    return options
+
+def return_object(type, refresh=True, type_name=None, keys=[]):
+    """returns dict object of matched nagios objects.
+     type is the type of object to query.  contact, service, host, etc
+     refresh:  If true, reload the cache if it's newer than current.
+     type_name is mapped to '%s_name' % (type) unless type is service, then
+     it is mapped to 'host_name'
+     keys is used for finer queries, like getting service_description=Current Load
+     on host_name=localhost (keys=['Current Load'])"""
+    funcname()
+    if not os.path.exists(options.object):
+        if options.verbose:
+            sys.stderr.write("No objects.cache file, returning None\n")
+        return None
+    last_mod = os.stat(options.object)[8]
+    if not objects.has_key('last_refresh') or \
+            ((objects['last_refresh'] + options.min_refresh) < last_mod and refresh):
+        process_objects(options.object)
+    funcname(False)
+    if objects.has_key(type):
+        if type_name is not None:
+            if objects[type].has_key(type_name):
+                if len(keys):
+                    object_dict = {}
+                    for key in keys:
+                        if not objects[type][type_name].has_key(key):
+                            break
+                        object_dict[key] = objects[type][type_name][key]
+                    return object_dict
+                else:
+                    if type == 'service':
+                        return objects[type][type_name].keys()
+                    else:
+                        return objects[type][type_name]
+        else:
+            return objects[type].keys()
+    return None
+
+def process_objects(file):
+    """Read object file, sanitize and store in global variable."""
+    funcname()
+    try:
+        object_lines = open(file).readlines()
+    except:
+        if options.verbose:
+            sys.stderr.write("Tried to open cache file, but failed.\n")
+    else:
+        tag = ''
+        for line in object_lines:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith('#'):
+                if options.verbose:
+                    sys.stderr.write("Read comment from object file.\n")
+                continue
+            if line.startswith('define'):
+                temp = {}
+                old_tag = tag
+                tag = line.split()[1]
+                if tag.endswith('status'):
+                    tag = tag.split('status')[0]
+                if options.verbose:
+                    if tag != old_tag:
+                        if old_tag:
+                            sys.stderr.write("Finished %s '%s' items\n" % (tag_count, old_tag))
+                        sys.stderr.write("Beginning define block for '%s'\n" % (tag))
+                        tag_count = 1
+                    else:
+                        tag_count += 1
+                if not objects.has_key(tag):
+                    objects[tag] = {}
+                continue
+            if line.endswith('}'):
+                if line != '}':
+                    (entry, value) = line.split('\t', 1)
+                    try:
+                        value = float(value)
+                    except:
+                        value = value.strip()
+                    temp[entry] = value
+                if temp.has_key('%s_name' % (tag)):
+                    tag_name = temp.pop('%s_name' % (tag))
+                    objects[tag][tag_name] = temp
+                elif temp.has_key('service_description'):
+                    if not temp.has_key('host_name'):
+                        temp['host_name'] = None
+                    host_name = temp.pop('host_name')
+                    if not objects[tag].has_key(host_name):
+                        objects[tag][host_name] = {}
+                    objects[tag][host_name][temp.pop('service_description')] = \
+                            temp
+            elif line:
+                (entry, value) = line.split('\t', 1)
+                try:
+                    value = float(value)
+                except:
+                    value = value.strip()
+                temp[entry] = value
+    objects['last_refresh'] = time.time()         
+    funcname(False)
+
+def return_status(type, refresh=True, type_name=None, keys=''):
+    """returns dict object of matched nagios status.
+     type is the type of status to query.  contact, service, host, etc
+     refresh:  If true, reload the cache if it's newer than current.
+     type_name is mapped to '%s_name' % (type) unless type is service, then
+     it is mapped to 'host_name'
+     keys is used for finer queries, like getting service_description=Current Load
+     on host_name=localhost (keys=['Current Load'])"""
+    funcname()
+    if not os.path.exists(options.status):
+        if options.verbose:
+            sys.stderr.write("No status file, returning None\n")
+        cleanquit(0, 'No status file.')
+    last_mod = os.stat(options.status)[8]
+    if not status.has_key('last_refresh') or \
+            ((status['last_refresh'] + options.min_refresh) < last_mod and refresh):
+        process_status(options.status)
+    funcname(False)
+    if status.has_key(type):
+        if type_name is not None:
+            if status[type].has_key(type_name):
+                if len(keys):
+                    status_dict = {}
+                    for key in keys:
+                        if not status[type][type_name].has_key(key):
+                            break
+                        status_dict[key] = status[type][type_name][key]
+                    return status_dict
+                else:
+                    if type == 'service':
+                        return status[type][type_name].keys()
+                    else:
+                        return status[type][type_name]
+        else:
+            return status[type].keys()
+    return None
+
+def cmp_service_last_state_change(x, y):
+    """Compare services by last state change.  For sorting.
+    Expects two, two-item tuples of ('host_name', 'service')
+    Directly reads status dictionary for speed."""
+    funcname()
+    x_lsc = status['service'][x[0]][x[1]]['last_state_change']
+    y_lsc = status['service'][y[0]][y[1]]['last_state_change']
+    return_val = cmp(x_lsc,y_lsc)
+    funcname(False)
+    return return_val
+
+def process_status(file):
+    """Read status file, sanitize and store in global variable."""
+    funcname()
+    try:
+        status_lines = open(file).readlines()
+    except:
+        if options.verbose:
+            sys.stderr.write("Tried to open status file, but failed.\n")
+    else:
+        tag = ''
+        global status_index
+        status_index = {}
+        for line in status_lines:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith('#'):
+                if options.verbose:
+                    sys.stderr.write("Read comment from status file.\n")
+                continue
+            if line.endswith('{'):
+                temp = {}
+                old_tag = tag
+                tag = line.split()[0]
+                tag = tag.strip()
+                if tag.endswith('status'):
+                    tag = tag.split('status')[0]
+                    shorttag = tag
+                elif tag.endswith('downtime'):
+                    shorttag = tag.split('downtime')[0]
+                elif tag.endswith('comment'):
+                    shorttag = tag.split('comment')[0]
+                else:
+                    shorttag = tag
+                if options.verbose:
+                    if tag != old_tag:
+                        if old_tag:
+                            sys.stderr.write("Finished %s '%s' items\n" % (tag_count, old_tag))
+                        sys.stderr.write("Beginning block for '%s'\n" % (tag))
+                        tag_count = 1
+                    else:
+                        tag_count += 1
+                if not status.has_key(tag):
+                    status[tag] = {}
+                if not status_index.has_key(tag):
+                    status_index[tag] = {}
+                continue
+            if line.endswith('}'):
+                if line != '}':
+                    (entry, value) = line.split('=', 1)
+                    try:
+                        value = float(value)
+                    except:
+                        value = value
+                    temp[entry] = value
+                #if temp.has_key('current_status') and temp['current_status'] == 0:
+                #    continue
+                if tag.startswith('service'):
+                    if not temp.has_key('host_name'):
+                        temp['host_name'] = None
+                    host_name = temp.pop('host_name')
+                    if not status[tag].has_key(host_name):
+                        status[tag][host_name] = {}
+                    try:
+                        service_description = temp.pop('service_description')
+                    except:
+                        continue
+                    status[tag][host_name][service_description] = \
+                            temp
+                    # initialize all the indexes, populate!
+                    for index in ['current_state', 'last_check', 'last_state_change', \
+                            'problem_has_been_acknowledged', 'scheduled_downtime_depth']:
+                        if temp.has_key(index):
+                            if not status_index[tag].has_key(index):
+                                status_index[tag][index] = {}
+                            if not status_index[tag][index].has_key(temp[index]):
+                                status_index[tag][index][temp[index]] = \
+                                    [(host_name, service_description)]
+                            else:
+                                status_index[tag][index][temp[index]].append((host_name, service_description))
+                elif temp.has_key('%s_name' % (shorttag)):
+                    tag_name = temp.pop('%s_name' % (shorttag))
+                    status[tag][tag_name] = temp
+                    # initialize all the indexes, populate!
+                    for index in ['current_state', 'last_check', 'last_state_change',
+                            'problem_has_been_acknowledged', 'scheduled_downtime_depth']:
+                        if temp.has_key(index):
+                            if not status_index[tag].has_key(index):
+                                status_index[tag][index] = {}
+                            if not status_index[tag][index].has_key(temp[index]):
+                                status_index[tag][index][temp[index]] = \
+                                    [tag_name]
+                            else:
+                                status_index[tag][index][temp[index]].append(tag_name)
+                else:
+                    status[tag] = temp
+            elif line:
+                (entry, value) = line.split('=', 1)
+                try:
+                    value = float(value)
+                except:
+                    value = value
+                temp[entry] = value
+    status['last_refresh'] = time.time()         
+    funcname(False)
+
+def init_screen():
+    funcname()
+    global stdscr
+    stdscr = curses.initscr()
+    init_colors()
+    stdscr = curses.newwin(height,width,0,0,)
+    curses.noecho()
+    curses.cbreak()
+    stdscr.keypad(1)
+    stdscr.clear()
+    stdscr.box()
+    stdscr.refresh()
+    funcname(False)
+    return
+
+def init_colors():
+    funcname()
+    curses.start_color()
+    curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
+    color['red'] = curses.color_pair(1)
+    color['critical'] = curses.color_pair(1)
+    color['down'] = curses.color_pair(1)
+    curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
+    color['green'] = curses.color_pair(2)
+    color['ok'] = curses.color_pair(2)
+    color['up'] = curses.color_pair(2)
+    curses.init_pair(6, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+    color['yellow'] = curses.color_pair(6)
+    color['warning'] = curses.color_pair(6)
+    curses.init_pair(7, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
+    color['unknown'] = curses.color_pair(7)
+    color['unreachable'] = curses.color_pair(7)
+    curses.init_pair(3, curses.COLOR_WHITE, curses.COLOR_BLUE)
+    color['whiteblue'] = curses.color_pair(3)
+    curses.init_pair(4, curses.COLOR_WHITE, curses.COLOR_BLACK)
+    color['white'] = curses.color_pair(4)
+    curses.init_pair(5, curses.COLOR_RED, curses.COLOR_BLUE)
+    color['redblue'] = curses.color_pair(5)
+    funcname(False)
+
+def inputnumber(text, attr=0):
+    funcname()
+    # text is a string containing the query string.
+    while 1:
+        y = 0
+        x = 0
+        for line in text.split('\n'):
+            print_win("%s" % (text), 'std', y, 0, attr)
+            y += 1
+            x = len(line) + 1
+        try:
+            curses.echo()
+            choice = windict['std'].getstr(y-1, x)
+            curses.noecho()
+        except KeyboardInterrupt:
+            print_win("Break detected.", 'err', 0, 0, color['red'])
+            cleanquit(0, 'Break detected.')
+        try:
+            if (str(int(choice)) == choice):
+                break
+        except:
+            continue
+    funcname(False)
+    return int(choice)
+
+def inputtext(text, attr=0):
+    funcname()
+    # text is a string containing the query string.
+    while 1:
+        y = 0
+        x = 0
+        for line in text.split('\n'):
+            print_win("%s" % (text), 'std', y, 0, attr)
+            y += 1
+            x = len(line) + 1
+        try:
+            curses.echo()
+            choice = windict['std'].getstr(y-1, x, color['red'])
+            curses.noecho()
+        except KeyboardInterrupt:
+            print_win("Break detected.", 'err', 0, 0, color['red'])
+            cleanquit(0, 'Break detected.')
+        if choice == '':
+            print_win("Empty string.", 'std', y-1, 0, attr)
+            time.sleep(0.4)
+        break
+    funcname(False)
+    return choice
+
+def inputchar(text, choices, attr=0):
+    funcname()
+    # text is a string containing the query string.
+    # choices is a list of valid input characters.
+    c = 0
+    for choice in choices:
+        try:
+            choice = int(choice)
+        except:
+            c += 1
+            continue
+        else:
+            choices[c] = str(choice)
+            c += 1
+    choicestr = "%s [" % (text)
+    for choice in choices:
+        choicestr += str(choice)
+        if choice != choices[-1]:
+            choicestr += "/"
+    choicestr += "]"
+    while 1:
+        choice = ''
+        y = 0
+        x = 0
+        for line in choicestr.split('\n'):
+            print_win("%s" % (line), 'std', y, 0, attr)
+            y += 1
+            x = len(line) + 1
+        try:
+            curses.echo()
+            choice = windict['std'].getkey(y-1, x)
+            curses.noecho()
+        except KeyboardInterrupt:
+            print_win("Break detected.", 'err', 0, 0, color['red'])
+            cleanquit(0, 'Break detected')
+        except:
+            print_win("Unhandled input exception.", 'err', 0, 0, color['red'])
+            continue
+        else:
+            print_win(choice, 'std', y-1, x)
+            if choice in choices:
+                break
+            else:
+                continue
+    funcname(False)
+    return choice
+
+def save_window(win):
+    funcname()
+    (maxy, maxx) = windict[win].getmaxyx()
+    screenlines = []
+    y = 0
+    while y < maxy:
+        x = 0
+        line = []
+        while x < maxx:
+            line.append(windict[win].inch(y, x))
+            x += 1
+        screenlines.append(line)
+        y += 1
+    funcname(False)
+    return screenlines
+
+def restore_window(win, screenlines):
+    funcname()
+    y = 0
+    for line in screenlines:
+        x = 0
+        for char in line:
+            windict[win].insch(y, x, char)
+            x += 1
+        y += 1
+    funcname(False)
+
+def cleanquit(exit=0, text=None):
+    funcname()
+    curses.nocbreak()
+    stdscr.keypad(0)
+    curses.echo()
+    curses.endwin()
+    if text:
+        for line in text:
+            print line,
+    funcname(False)
+    sys.exit(exit)
+
+def refresh_win():
+    funcname()
+    x = 0
+    for win in windict:
+        windict[win].refresh()
+        x += 1
+        if x > 10:
+            sys.stderr.write("WTF, refresh loop\n")
+    curses.doupdate()
+    funcname(False)
+
+def print_win(text, win, y=0, x=0, attr=0):
+    funcname()
+    if options.verbose:
+        sys.stderr.write("Args: %s, %s, %s, %s, %s\n" % (text, win, y, x, attr))
+    try:
+        windict[win].move(y,x)
+        windict[win].clrtoeol()
+        windict[win].addstr(y, x, str(text), attr)
+    except:
+        windict['err'].addstr(1, 0, "Cannot display %s in window %s at %s,%s" % (text, win, y, x))
+        if options.verbose:
+            sys.stderr.write("Cannot display %s in window %s at %s,%s\v" % (text, win, y, x))
+    refresh_win()
+    curses.doupdate()
+    funcname(False)
+
+def init_windows():
+    funcname()
+    stdscr.attrset(0)
+    mainwin = curses.newwin(height-12,width-2,1,1)
+    windict['main'] = mainwin
+    stdwin = curses.newwin(4,width-2,height-10,1)
+    windict['std'] = stdwin
+    errwin = curses.newwin(4,width-2,height-5,1)
+    windict['err'] = errwin
+
+    stdscr.hline(height-11,1,'-',width-2)
+    stdscr.hline(height-6,1,'-',width-2)
+    stdscr.refresh()
+    curses.doupdate()
+    funcname(False)
+
+def return_services_in_state(state, refresh=True, sort_key=None, sort_invert=False):
+    """Returns a list of 2 item tuples of (host, service)"""
+    funcname()
+    tuple_list = []
+    if refresh==False:
+        try:
+            state_set = set(status_index['service']['current_state'][states['service'][state.upper()]])
+        except:
+            state_set = set()
+        try:
+            ack_set = set(status_index['service']['problem_has_been_acknowledged'][1])
+        except:
+            ack_set = set()
+        try:
+            downtime_set = set(status_index['service']['scheduled_downtime_depth'][0])
+        except:
+            downtime_set = set(state_list)
+        tuple_list = list(state_set.intersection(downtime_set).difference(ack_set))
+        #for item in state_list:
+        #    # if unacked, and in 0 downtime, append
+        #    if item not in ack_list and item in downtime_list:
+        #        tuple_list.append(item)
+    else:
+        for host in return_status('host'):
+            try:
+                for service in return_status('service', refresh=refresh, type_name=host):
+                    status = return_status('service', refresh=refresh, type_name=host, \
+                            keys=[service])[service]['current_state']
+                    ack = return_status('service', refresh=refresh, type_name=host, \
+                            keys=[service])[service]['problem_has_been_acknowledged']
+                    try:
+                        downtime = return_status('service', refresh=refresh, type_name=host, \
+                                keys=[service])[service]['scheduled_downtime_depth']
+                    except:
+                        downtime = 0
+                    if state.upper() == states['service'][status] and ack == 0 and downtime == 0:
+                        tuple_list.append((host, service))
+            except:
+                # magical host without services?
+                continue
+    if sort_key is not None:
+        try:
+            tuple_list.sort(cmp=cmp_service_last_state_change, reverse=sort_invert)
+        except:
+            if options.verbose:
+                sys.stderr.write("Sort options are limited in python 2.3!\n")
+    else:
+        try:
+            tuple_list.sort(reverse=sort_invert)
+        except:
+            if options.verbose:
+                sys.stderr.write("Sort options are limited in python 2.3!\n")
+            
+    funcname(False)
+    return tuple_list
+
+def print_state(state, refresh=True, recent=False, sort_key=None, sort_invert=False):
+    """Prints services matching given state, to main window"""
+    funcname()
+    windict['err'].clear()
+    windict['main'].clear()
+    print_win('Gathering stats', 'err', 0, 0, color['red'])
+    state_list = return_services_in_state(state, refresh, sort_key, sort_invert)
+    windict['err'].clear()
+    y=0
+    x=0
+    for entry in state_list:
+        text = '%s/%s' % (entry[0], entry[1])
+        print_win(text, 'main', y, x, color[state])
+        y += 1
+    funcname(False)
+
+def list_list(ll, win='main', yoff=0, xoff=0):
+    funcname()
+    windict[win].clear()
+    (maxy, maxx) = windict[win].getmaxyx()
+    y = yoff
+    x = xoff
+    try:
+        for line in ll:
+            line = '%s) %s' % (y - yoff + 1, line)
+            print_win(line, win, y, x)
+            y += 1
+    except:
+        pass
+    funcname(False)
+
+def ack(host, comment, service=None):
+    """Ack a host or service"""
+    funcname()
+    try:
+        spool = open(options.cmdspool, 'a')
+    except:
+        print_win('Spoolfile access error.', 'err', 0, 0, color['red'])
+    else:
+        if service is None:
+            print >> spool, ('[%i] ACKNOWLEDGE_HOST_PROBLEM;%s;%i;%i;%i;%s;%s' % \
+                (int(time.time()), host, 1, 0, 1, os.getlogin(), comment))
+            sys.stderr.write('>> [%i] ACKNOWLEDGE_HOST_PROBLEM;%s;%i;%i;%i;%s;%s\n' % \
+                (int(time.time()), host, 1, 0, 1, os.getlogin(), comment))
+            # update the index
+            status_index['host']['problem_has_been_acknowledged'][1].append(host)
+            status_index['host']['problem_has_been_acknowledged'][0].remove(host)
+        else:
+            print >> spool, ('[%i] ACKNOWLEDGE_SVC_PROBLEM;%s;%s;%i;%i;%i;%s;%s' % \
+                (int(time.time()), host, service, 1, 0, 1, os.getlogin(), comment))
+            sys.stderr.write('>> [%i] ACKNOWLEDGE_SVC_PROBLEM;%s;%s;%i;%i;%i;%s;%s\n' % \
+                (int(time.time()), host, service, 1, 0, 1, os.getlogin(), comment))
+            # update the index
+            status_index['service']['problem_has_been_acknowledged'][1].append((host,service))
+            status_index['service']['problem_has_been_acknowledged'][0].remove((host,service))
+
+    funcname(False)
+
+def downtime(host, comment, duration, ghs='host', sh='service', service=None):
+    """Downtime a host or service"""
+    funcname()
+    duration = duration * 60
+    try:
+        spool = open(options.cmdspool, 'a')
+    except:
+        print_win('Spoolfile access error.', 'err', 0, 0, color['red'])
+    else:
+        command = "SCHEDULE_"
+        if ghs == "hostgroup":
+            command += "HOSTGROUP_"
+            if sh == "host":
+                command += "HOST_DOWNTIME"
+            elif sh == "service":
+                command += "SVC_DOWNTIME"
+            else:
+                command = "UNKNOWN"
+            sname = ""
+        elif ghs == "host":
+            command += "HOST_"
+            if sh == "host":
+                command += "DOWNTIME"
+            elif sh == "service":
+                command += "SVC_DOWNTIME"
+            else:
+                command = "UNKNOWN"
+        elif ghs == "servicegroup":
+            command += "SERVICEGROUP_"
+            if sh == "host":
+                command += "HOST_DOWNTIME"
+            elif sh == "service":
+                command += "SVC_DOWNTIME"
+            else:
+                command = "UNKNOWN"
+            sname = ""
+        elif ghs == "service":
+            command += "SVC_"
+            if sh == "service":
+                command += "DOWNTIME"
+                if service == "" or not service or service is None: command = "UNKNOWN"
+            else:
+                command = "UNKNOWN"
+        else:
+            print_win('unknown ghs flag passed to downtime()', 0, 0, 'err', color['red'])
+        now = int(time.time())
+        start = now
+        end = now + duration
+        fixed = 1
+        trigger = 0
+        if command == "UNKNOWN" or command == "":
+            print_win('unknown command for downtime()', 0, 0, 'err', color['red'])
+        elif service is None:
+            print >> spool, ('[%i] %s;%s;%i;%i;%i;%i;%i;%s;%s' % \
+                (now, command, host, start, end, fixed, trigger, duration,\
+                        os.getlogin(), comment))
+            sys.stderr.write('>> [%i] %s;%s;%i;%i;%i;%i;%i%s;%s\n' % \
+                (now, command, host, start, end, fixed, trigger, duration,\
+                        os.getlogin(), comment))
+            try:
+                # update the index
+                status_index['host']['scheduled_downtime_depth'][1].append((host,service))
+                status_index['host']['scheduled_downtime_depth'][0].remove((host,service))
+            except:
+                pass
+        else:
+            print >> spool, ('[%i] %s;%s;%s;%i;%i;%i;%i;%i;%s;%s' % \
+                (now, command, host, service, start, end, fixed, trigger, duration,\
+                        os.getlogin(), comment))
+            sys.stderr.write('>> [%i] %s;%s;%s;%i;%i;%i;%i;%i;%s;%s\n' % \
+                (now, command, host, service, start, end, fixed, trigger, duration,\
+                        os.getlogin(), comment))
+            try:
+                # update the index
+                status_index['service']['scheduled_downtime_depth'][1].append((host,service))
+                status_index['service']['scheduled_downtime_depth'][0].remove((host,service))
+            except:
+                pass
+    funcname(False)
+
+def print_status_footer():
+    """Prints color coded status numbers at the bottom."""
+    funcname()
+    count = {}
+    try:
+        count[0] = len(status_index['service']['current_state'][0])
+    except:
+        count[0] = 0
+    try:
+        count[1] = len(status_index['service']['current_state'][1])
+    except:
+        count[1] = 0
+    try:
+        count[2] = len(status_index['service']['current_state'][2])
+    except:
+        count[2] = 0
+    try:
+        count[3] = len(status_index['service']['current_state'][3])
+    except:
+        count[3] = 0
+    print_win('%s' % (count[0]), 'err', 3, 0, color['ok'])
+    print_win('/', 'err', 3, len(str(count[0])))
+    print_win('%s' % (count[1]), 'err', 3, len(str(count[0])) + 1, color['warning'])
+    print_win('/', 'err', 3, len(str(count[0])) + len(str(count[1])) + 1)
+    print_win('%s' % (count[2]), 'err', 3, len(str(count[0])) + len(str(count[1])) + 2, color['critical'])
+    print_win('/', 'err', 3, len(str(count[0])) + len(str(count[1])) + len(str(count[2])) + 2)
+    print_win('%s' % (count[3]), 'err', 3, len(str(count[0])) + len(str(count[1])) + len(str(count[2])) + 3, color['unknown'])
+    eff_login = pwd.getpwuid(os.geteuid())[0]
+    if eff_login != 'nagios' and eff_login != 'root':
+        print_win('Effective Login is neither root nor nagios.  Sudo for ACK/Downtime.', \
+                'err', 2, 0, color['red'])
+
+    funcname(False)
+
+options = init()
+# Get a list of all timeperiods
+# print return_object('timeperiod')
+# print dict of 24x7 timeperiod
+# print return_object('timeperiod', type_name='24x7')
+# get a list of all hosts with service checks.
+# print return_object('service')
+# Get a list of all services on localhost
+# print return_status('service', type_name='corpus2-db1.soma.ironport.com', keys=['ip_ipmi'])['ip_ipmi']
+# sys.exit()
+# Get dictionary of ping and http service checks on localhost
+
+# print return_status('host', type_name='localhost')
+# print return_status('host', type_name='localhost')['notification_period']
+# print return_object('timeperiod', type_name=return_status('host', type_name='localhost')['notification_period'])
+
+# print return_status('program')
+# print return_status('program', type_name='next_comment_id')
+
+# print return_status('hostdowntime')
+# print return_status('servicedowntime')
+# print return_status('hostcomment')
+# print return_status('servicecomment')
+# print status.keys()
+
+#import nprint
+#for host in return_status('host'):
+#    for service in return_status('service', type_name=host):
+#        pprint.pprint(return_status('service', type_name=host, keys=[service])[service])
+#    sys.exit()
+
+height = options.Height
+width = options.Width
+windict = {}
+init_screen()
+stdscr.box()
+init_windows()
+
+refresh_win()
+
+windict['main'].clear()
+try:
+    refresh_status=True
+    refresh_object=True
+    sort_invert=False
+    sort_key=None
+    do_or_not = {False: 'do', True: 'don\'t'}
+    most_or_least = {False: 'Most', True: 'Least'}
+    recent=True
+    last = 'critical'
+    while (True):
+        print_state(last, refresh_status, sort_key=sort_key, sort_invert=sort_invert)
+        print_status_footer()
+        windict['std'].clear()
+        basetext = "[c]ritical, [w]arning, [u]nknown, [a]ck, [d]owntime\n"
+        basetext += "[D]etail\n"
+        basetext += "%s [r]ecent, [i]nvert sort, %s re[f]resh, [q]uit\n" % \
+            (most_or_least[recent], do_or_not[refresh_status])
+        basechoice = inputchar(basetext, ['c', 'w', 'u', 'a', 'd', 'D', 'r', 'i', 'f', 'q'])
+        if basechoice == 'c':
+            last = 'critical'
+        if basechoice == 'w':
+            last = 'warning'
+        if basechoice == 'u':
+            last = 'unknown'
+        if basechoice == 'a':
+            while (True):
+                windict['std'].clear()
+                try:
+                    llength = len(return_services_in_state(last, False))
+                except:
+                    print_win("Nothing to Ack", 'err', 0, 0, color['red'])
+                    break
+                list_list(return_services_in_state(last, False))
+                choice = inputnumber("Which? (0 for none)")
+                if (choice >= 1) and (choice <= llength):
+                    host = return_services_in_state(last, False)[choice -1][0]
+                    service = return_services_in_state(last, False)[choice -1][1]
+                    comment = inputtext("%s..%s; Comment?" % (host, service))
+                    ack(host, comment, service)
+                    break
+                if (choice == 0):
+                    break
+                else:
+                    print_win("Not a valid choice", 'err', 0, 0, color['red'])
+        if basechoice == 'd':
+            while (True):
+                windict['std'].clear()
+                try:
+                    llength = len(return_services_in_state(last, False))
+                except:
+                    print_win("Nothing to Downtime", 'err', 0, 0, color['red'])
+                    break
+                list_list(return_services_in_state(last, False))
+                choice = inputnumber("Which? (0 for none)")
+                if (choice >= 1) and (choice <= llength):
+                    host = return_services_in_state(last, False)[choice -1][0]
+                    service = return_services_in_state(last, False)[choice -1][1]
+                    comment = inputtext("%s..%s; Comment?" % (host, service))
+                    duration = inputnumber("Duration (minutes)?")
+                    downtime(host, comment, duration=duration, service=service)
+                    break
+                if (choice == 0):
+                    break
+                else:
+                    print_win("Not a valid choice", 'err', 0, 0, color['red'])
+        if basechoice == 'D':
+            while (True):
+                windict['main'].clear()
+                windict['std'].clear()
+                try:
+                    llength = len(return_services_in_state(last, False))
+                except:
+                    print_win("Nothing to get details for", 'err', 0, 0, color['red'])
+                    break
+                list_list(return_services_in_state(last, False))
+                choice = inputnumber("Which? (0 for none)")
+                if (choice >= 1) and (choice <= llength):
+                    windict['main'].clear()
+                    windict['main'].clear()
+                    windict['std'].clear()
+                    host = return_services_in_state(last, False)[choice -1][0]
+                    service = return_services_in_state(last, False)[choice -1][1]
+                    pf_dict = return_status('service', type_name=host, keys=[service])[service]
+                    pf_keys = pf_dict.keys()
+                    pf = '%s %s (%s)\n' % \
+                            (host, service, states['service'][pf_dict['current_state']])
+                    pf += '%s\n%s\n' % (pf_dict['plugin_output'], pf_dict['long_plugin_output'])
+                    pf += 'last_hard_state: %s\n' % \
+                            (states['service'][pf_dict['last_hard_state']])
+                    pf += 'last_hard_state_change: %i seconds ago\n' % \
+                            (time.time() - pf_dict['last_hard_state_change'])
+                    print_win(pf, 'main')
+                    if options.verbose:
+                        pprint.pprint(pf_dict)
+                    print_win("Any key to continue", 'std')
+                    curses.echo()
+                    choice = windict['std'].getkey()
+                    curses.noecho()
+                    break
+                if (choice == 0):
+                    break
+                       
+        if basechoice == 'r':
+            recent = not recent
+        if basechoice == 'i':
+            sort_invert = not sort_invert
+        if basechoice == 'f':
+            refresh_status = not refresh_status
+        if basechoice == 'q': cleanquit()
+except SystemExit:
+    pass
+except:
+    print_win("Unhandled exception. %s" % (str(sys.exc_info())), 'err', 0, 0, color['red'])
+    print_win(str(sys.exc_info()[1]), 'err', 1, 0, color['red'])
+    formatted_lines = traceback.format_tb(sys.exc_info()[2])
+    formatted_lines += '\n%s\n' % (states['service'][0])
+
+    cleanquit(0, formatted_lines)

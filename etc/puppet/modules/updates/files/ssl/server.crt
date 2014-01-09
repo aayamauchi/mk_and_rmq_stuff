@@ -1,0 +1,62 @@
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number:
+            95:73:d1:db:32:59:f5:47
+        Signature Algorithm: sha1WithRSAEncryption
+        Issuer: C=US, ST=California, O=Cisco Systems, CN=ops-updates-vip.ironport.com
+        Validity
+            Not Before: Jun  1 19:15:06 2012 GMT
+            Not After : May 30 19:15:06 2022 GMT
+        Subject: C=US, ST=California, L=San Bruno, O=Cisco Systems, CN=ops-updates-vip.ironport.com
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+            RSA Public Key: (1024 bit)
+                Modulus (1024 bit):
+                    00:e4:03:86:7d:1f:cd:4e:3b:53:ee:dd:68:89:71:
+                    5f:42:6d:2c:e4:25:b4:63:1f:30:c2:a8:29:98:13:
+                    e7:ba:b2:a5:6f:64:c9:6e:9a:ad:d7:09:8d:72:8c:
+                    d7:d9:c0:28:22:56:cd:e7:c5:05:e1:1d:2b:c1:24:
+                    9c:ae:a9:a1:92:9c:38:1b:f6:c2:de:41:48:d2:c3:
+                    aa:64:7c:08:95:0c:0f:1e:1f:8e:b6:c5:a6:9e:75:
+                    ba:8f:72:e3:b5:cb:d8:64:85:9c:2d:ff:a8:a1:43:
+                    d7:19:f9:7a:42:84:b5:fb:43:5d:10:34:cf:36:80:
+                    be:25:a7:26:91:2d:83:6a:3d
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Basic Constraints: 
+                CA:FALSE
+            Netscape Comment: 
+                OpenSSL Generated Certificate
+            X509v3 Subject Key Identifier: 
+                E2:B9:35:44:ED:87:8F:54:81:24:A5:65:26:3B:00:D1:79:91:73:79
+            X509v3 Authority Key Identifier: 
+                keyid:FB:57:EE:FB:0C:61:ED:AD:99:A3:A1:67:17:17:C3:CD:9E:62:8D:0E
+
+    Signature Algorithm: sha1WithRSAEncryption
+        60:42:0f:74:4e:d1:cf:6d:13:f5:aa:0b:73:35:1a:fb:51:d0:
+        2a:09:e4:b3:10:f2:cd:26:d0:4d:e5:07:8a:5c:b0:07:96:a4:
+        c1:76:5f:f3:17:9d:ac:b6:20:db:e0:ab:8a:b4:95:b9:c5:cb:
+        85:45:68:e0:18:36:f5:ef:2a:d8:dc:e4:bd:ce:61:25:73:f5:
+        b8:c0:d1:a6:71:7e:ed:7e:69:cf:f7:62:06:18:0b:3f:0e:a9:
+        9b:b7:30:b1:9b:5d:18:34:81:2d:04:f8:57:ad:19:33:1d:49:
+        f5:d7:f9:43:17:5e:84:84:be:51:ee:0e:2f:57:f2:a8:b8:9a:
+        d3:06
+-----BEGIN CERTIFICATE-----
+MIICzzCCAjigAwIBAgIJAJVz0dsyWfVHMA0GCSqGSIb3DQEBBQUAMGExCzAJBgNV
+BAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlhMRYwFAYDVQQKEw1DaXNjbyBTeXN0
+ZW1zMSUwIwYDVQQDExxvcHMtdXBkYXRlcy12aXAuaXJvbnBvcnQuY29tMB4XDTEy
+MDYwMTE5MTUwNloXDTIyMDUzMDE5MTUwNlowdTELMAkGA1UEBhMCVVMxEzARBgNV
+BAgTCkNhbGlmb3JuaWExEjAQBgNVBAcTCVNhbiBCcnVubzEWMBQGA1UEChMNQ2lz
+Y28gU3lzdGVtczElMCMGA1UEAxMcb3BzLXVwZGF0ZXMtdmlwLmlyb25wb3J0LmNv
+bTCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA5AOGfR/NTjtT7t1oiXFfQm0s
+5CW0Yx8wwqgpmBPnurKlb2TJbpqt1wmNcozX2cAoIlbN58UF4R0rwSScrqmhkpw4
+G/bC3kFI0sOqZHwIlQwPHh+OtsWmnnW6j3LjtcvYZIWcLf+ooUPXGfl6QoS1+0Nd
+EDTPNoC+JacmkS2Daj0CAwEAAaN7MHkwCQYDVR0TBAIwADAsBglghkgBhvhCAQ0E
+HxYdT3BlblNTTCBHZW5lcmF0ZWQgQ2VydGlmaWNhdGUwHQYDVR0OBBYEFOK5NUTt
+h49UgSSlZSY7ANF5kXN5MB8GA1UdIwQYMBaAFPtX7vsMYe2tmaOhZxcXw82eYo0O
+MA0GCSqGSIb3DQEBBQUAA4GBAGBCD3RO0c9tE/WqC3M1GvtR0CoJ5LMQ8s0m0E3l
+B4pcsAeWpMF2X/MXnay2INvgq4q0lbnFy4VFaOAYNvXvKtjc5L3OYSVz9bjA0aZx
+fu1+ac/3YgYYCz8OqZu3MLGbXRg0gS0E+FetGTMdSfXX+UMXXoSEvlHuDi9X8qi4
+mtMG
+-----END CERTIFICATE-----

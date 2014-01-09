@@ -1,0 +1,1 @@
+/usr/local/ironport/nagios/customplugins/dh-blacklist.py --host prod-dh-atlas1.sv2.ironport.com --user nagios --password thaxu1T --blacklist SpamhausPBL --poller mon2.soma.ironport.com --location blade90.soma.ironport.com:/usr/local/ironport/feeds-data/spamhaus_pbl/data/spamhaus.pbl --notification

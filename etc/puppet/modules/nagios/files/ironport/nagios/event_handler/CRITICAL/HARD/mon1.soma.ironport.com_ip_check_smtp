@@ -1,0 +1,7 @@
+#!/usr/local/bin/bash
+
+for email in `/bin/cat /usr/local/ironport/nagios/ext-nagios/pager_emails.txt`
+do
+/bin/echo "Problem with Postfix on ${NAGIOS_HOSTADDRESS}, restart failed.\
+Please investigate immediately." | /bin/mail -s "Nagios notification issue" ${email}
+done

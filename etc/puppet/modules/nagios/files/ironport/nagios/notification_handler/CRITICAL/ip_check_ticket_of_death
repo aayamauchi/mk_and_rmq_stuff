@@ -1,0 +1,3 @@
+TIMEOUT=/usr/local/ironport/nagios/bin/timeout.pl
+
+echo "SELECT tr.Ticket, t.Status, t.Created, t.LastUpdated, COUNT(*) AS 'AttachmentCount' FROM rt3.Tickets t, rt3.Transactions tr, rt3.Attachments at WHERE tr.id=at.TransactionId AND tr.Ticket=t.id AND t.LastUpdated > date_sub(now(),INTERVAL 1 HOUR) AND t.Status != 'rejected' GROUP BY tr.Ticket, t.Created HAVING COUNT(*) > 1000" | $TIMEOUT 5 mysql -u nagios -pthaxu1T -h${NAGIOS_HOSTADDRESS} rt3

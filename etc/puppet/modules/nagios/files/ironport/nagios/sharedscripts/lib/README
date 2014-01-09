@@ -1,0 +1,78 @@
+* General packages
+** cfg.tcl
+
+This package provides functions for parse command line arguments and INI-type configuration files.
+
+*** opscfg::getopt -- command line options parser
+*** opscfg::getswitchopt -- command line options parser for switch options
+*** opscfg::expandvalue -- expand numeric values with suffix
+*** opscfg::expandtime -- expand time values with suffix
+*** opscfg::expandsize -- expand size values with suffix
+*** opscfg::bool2text -- convert boolean (numeric) value to string
+*** opscfg::inlist -- check if list contains value
+*** opscfg::parse_file -- parse INI-style configuration file
+*** opscfg::sections -- return list of sections
+*** opscfg::variables -- return list of section variables names
+*** opscfg::getvar -- return value of the specified variable
+
+** logger.tcl
+
+This package provides functions for logging similar to standard open, puts, close.
+
+*** ::opslogger::openlog -- open log file
+*** ::opslogger::closelog -- close opened log file
+*** ::opslogger::putslog -- put record to the log file
+
+** db.tcl
+
+This package provides functions for make queues to MySQL server.
+
+*** ::opsdb::openmysql -- create namespace with mysql client parameters
+*** ::opsdb::closemysql -- delete namespace with mysql client parameters
+*** ::opsdb::mysql -- run queue on MySQL server
+
+** ssh.tcl
+
+This package provides functions for execute command on SSH server.
+If the connection is made using login and password, not passwordless ssh-key requires a package Expect.
+
+*** ::opsssh::openssh -- create namespace with ssh client parameters
+*** ::opsssh::closessh -- delete namespace with ssh client parameters
+*** ::opsssh::ssh -- run command on remote SSH server.
+
+** prns.tcl
+
+This package provides functions for create and manipulate objects in XOTcl-like style.
+
+*** opsprns::obj -- create new object
+
+** parsers.tcl
+
+This package provides functions for parse HTML and JSON.
+
+*** ::opsparsers::HMparse_html -- simply HTML parser
+*** ::opsparsers::HMtest_parse -- test function for html parser
+*** ::opsparsers::unmap_html -- unmap html sequences to chars
+*** ::opsparsers::json2array -- convert JSON to array as list
+
+* Monitoring packages
+
+** mondiablo.tcl
+
+This package provides functions for parse web pages and JSONs from Diablo web plugin.
+
+*** ::mondiablo::parsecounters -- parse diablo counters web page
+*** ::mondiablo::parsestatus -- parse diablo status web page
+*** ::mondiablo::parseftstatus -- parse diablo node status web page
+
+** monoutput.tcl
+
+This package provides exit codes variables and functions for print data in Cacti and Nagios formats.
+
+*** ::monoutput::cactioutput -- format output for Cacti
+*** ::monoutput::nagiosoutput -- format output for Nagios
+
+# Local Variables:
+# mode: org
+# coding: utf-8-unix
+# End:

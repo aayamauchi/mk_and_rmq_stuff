@@ -1,0 +1,37 @@
+#!/bin/sh
+
+# Arguments:
+#  $1 = central server
+#  $2 = host_name (Short name of host that the service is
+#       associated with)
+#  $3 = svc_description (Description of the service)
+#  $4 = state_string (A string representing the status of
+#       the given service - "OK", "WARNING", "CRITICAL"
+#       or "UNKNOWN")
+#  $5 = plugin_output (A text string that should be used
+#       as the plugin output for the service checks)
+#
+
+# Convert the state string to the corresponding return code
+return_code=-1
+
+case "$4" in
+        OK)
+                return_code=0
+                ;;
+        WARNING)
+                return_code=1
+                ;;
+        CRITICAL)
+                return_code=2
+                ;;
+        UNKNOWN)
+                return_code=-1
+                ;;
+esac
+
+# pass the service check info into the send_nsca program via env macros,
+# which in turn transmits the data to the nsca daemon on the central
+# monitoring server
+
+/usr/local/nagios/libexec/send_nsca_cached

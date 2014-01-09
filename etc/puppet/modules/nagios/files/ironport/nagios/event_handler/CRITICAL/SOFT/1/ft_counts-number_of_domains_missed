@@ -1,0 +1,48 @@
+#!/usr/local/bin/bash
+#==============================================================================
+# ft_counts-number_of_domains_missed
+# Restarts registrar_inspector.sh on the host that most recently updated the
+# database, and then the "other" redlist/prod/app host(s).
+#
+# 2012-01-25 jramache, per MONOPS-610
+#==============================================================================
+ASDB="asdb.ironport.com"
+
+# Get list of hosts that require a restart
+BLADES=`fetch -o - -q "http://${ASDB}/servers/list/?product__name=redlist&purpose__name=app&environment__name=prod" 2>/dev/null`
+
+# Retrieve most recent host from db
+SQL="select hostname from ft_counts where counter_name='number_of_domains_missed' order by mtime desc limit 1"
+MOST_RECENT_BLADE=`echo ${SQL} | mysql -N -unagios -pthaxu1T -h ${NAGIOS_HOSTADDRESS} redlistreg`
+if [ "X${MOST_RECENT_BLADE}X" = "XX" ]; then
+    echo "empty hostname returned from db"
+    exit 1
+fi
+if [ "X`dig ${MOST_RECENT_BLADE} +short`X" = "XX" ]; then
+    echo "unable to resolve hostname resturned from db"
+    exit 1
+fi
+
+# Restart on each redlist/prod/app host, starting with the one that
+# most recently updated the database.
+CMD="sudo /usr/local/etc/rc.d/registrar_inspector.sh restart 2>&1"
+
+# most recent host
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${MOST_RECENT_BLADE} "${CMD}" 2>&1
+# Send a note to irc
+/usr/local/ironport/nagios/bin/ironcat.sh "nagios has attempted to restart the redlist registrar inspector on ${MOST_RECENT_BLADE}"
+
+# any others
+for H in ${BLADES}
+do
+    if [ "${H}" != "${MOST_RECENT_BLADE}" ]; then
+        /usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${H} "${CMD}" 2>&1
+        # Send a note to irc
+        /usr/local/ironport/nagios/bin/ironcat.sh "nagios has attempted to restart the redlist registrar inspector on ${H}"
+    fi
+done
+
+# Send an email as well
+echo "Redlist registrar_inspector.sh restart issued by nagios on ${BLADES}. Will escalate if necessary." | mail -s "NAGIOS event: ft_counts-number_of_domains_missed" egladsto@cisco.com,stbu-ops-alerts@cisco.com
+
+exit 0

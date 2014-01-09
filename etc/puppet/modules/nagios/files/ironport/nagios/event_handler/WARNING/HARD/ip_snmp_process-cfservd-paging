@@ -1,0 +1,13 @@
+#!/usr/local/bin/bash
+
+lockfile=`basename $0`
+lock=`/usr/bin/find /tmp -maxdepth 1 -name "${lockfile}.lock" -mmin -1`
+# So we don't run it on all the hosts at the same time.
+if [ "${lock}" != "" ]
+then
+    sleep 30
+fi
+touch /tmp/${lockfile}.lock
+# daemontools manages cfservd, so we can just kill it and move on.
+CMD="sudo /usr/bin/killall -9 cfservd"
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}"

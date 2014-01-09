@@ -1,0 +1,26 @@
+#!/usr/local/bin/bash
+#==============================================================================
+# sds-app-updater-connector_process
+# Restarts updater_connector on offending sds app host.
+#==============================================================================
+# Restart
+CMD="sudo /usr/local/ironport/sysops/sds/updater_connector_hard_reset.sh 2>&1"
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}" 2>&1
+
+# Downtime the metascan db monitors (if that's why this was called) because they can take a while to recover.
+MONITOR="`/usr/bin/basename ${0}`"
+if [ "${MONITOR}" == "sds_metascandb_ip_mtime" -o "${MONITOR}" == "sds_metascandb_prefixcat_mtime" ]; then
+    /usr/local/ironport/nagios/bin/downtime -H ${NAGIOS_HOSTADDRESS} -S sds_metascandb_ip_mtime -c"Automated downtime for recovery" -unagios -E1200
+    /usr/local/ironport/nagios/bin/downtime -H ${NAGIOS_HOSTADDRESS} -S sds_metascandb_prefixcat_mtime -c"Automated downtime for recovery" -unagios -E1200
+fi
+
+# Notify
+H_NAME=`dig -x ${NAGIOS_HOSTADDRESS} +short 2>/dev/null | head -1 | sed 's/\.$//'`
+if [ "${H_NAME}" = ""]; then
+    H_NAME="${NAGIOS_HOSTADDRESS}"
+fi
+MESG="Nagios issued restart of updater_connector on ${H_NAME}. Will escalate if not successful."
+/usr/local/ironport/nagios/bin/ironcat.sh "${MESG}" 2>&1
+echo "${MESG}" | mail -s "Nagios event handler triggered: ${MONITOR}" stbu-sds-escalations@cisco.com,stbu-ops-alerts@cisco.com 2>&1
+
+exit 0

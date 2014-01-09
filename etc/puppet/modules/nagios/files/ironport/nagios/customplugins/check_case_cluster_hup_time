@@ -1,0 +1,57 @@
+#!/bin/sh -
+
+PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"
+export PATH
+
+curl=`which curl 2>/dev/null`
+if [ -z "$curl" ]
+then
+	echo "ERROR: curl not found"
+	exit 2
+fi
+
+usage()
+{
+	echo "USAGE: $0 -H <host> -c <crit> -w <warn> -p <port>"
+	exit 1
+}
+
+# process command line args
+while getopts H:c:w:p: arg
+do
+    case "$arg" in
+     H) host="$OPTARG";;
+     c) critical="$OPTARG";;
+     w) warning="$OPTARG";;
+     p) port="$OPTARG";;
+     *) usage;;
+    esac
+done
+
+[ -z "$host" -o -z "$critical" -o -z "$warning" -o -z "$port" ] && usage
+
+# Engine HUPd (rules reload): 12-17-2007 21:28:03 (168 seconds ago)
+line=`$curl -s -o - http://${host}:${port}/engine-status | grep 'Engine HUP'`
+hup_time=`echo $line | awk '{print $7}' | tr -d '('`
+
+if [ -z "$hup_time" ]
+then
+	echo "WARN: hup_time is empty"
+	exit 1
+fi
+
+if [ $hup_time -gt $critical ]
+then
+	echo "ERROR: HUP time over threshold (${hup_time}/${critical})"
+	exit 2
+fi
+
+if [ $hup_time -gt $warning ]
+then
+	echo "WARN: HUP time over threshold (${hup_time}/${warning})"
+	exit 2
+fi
+
+echo "OK - $line"
+exit 0
+

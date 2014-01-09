@@ -1,0 +1,23 @@
+#!/usr/local/bin/bash
+#==============================================================================
+# ip_snmp_process_memory-updater_server
+#
+# If the hostname matches *updates-www*, then the updater service is restarted
+# and email is sent to ops alerts.
+#
+# You'll need to modify this script to perform any actions on hosts
+# other than *updates-www*.
+#==============================================================================
+if [[ "${NAGIOS_HOSTNAME}" == *updates-www* ]]; then
+    CMD="sudo /usr/local/ironport/updater/bin/rc restart"
+    /usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}"
+
+    MESG="The following command was executed on ${NAGIOS_HOSTNAME} in response to\n"
+    MESG="${MESG}ip_snmp_process_memory-updater_server (CRITICAL/SOFT/2):\n\n"
+    MESG="${MESG}${CMD}\n\n"
+    MESG="${MESG}Will escalate if problem continues."
+
+    /usr/local/ironport/nagios/bin/ironcat.sh "nagios restarted updater on ${NAGIOS_HOSTADDRESS}"
+    printf "%b" "${MESG}" | mail -s "NAGIOS event: ip_snmp_process_memory-updater_server" stbu-ops-alerts@cisco.com
+fi
+exit 0

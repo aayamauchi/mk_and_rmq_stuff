@@ -1,0 +1,134 @@
+#! /usr/bin/env python2.6
+
+# Simple Elasticsearch cluster Nagios-style health check
+# KFA-248
+
+import sys
+import signal
+import urllib2
+from urllib2 import HTTPError, URLError
+import simplejson
+from optparse import OptionParser
+
+class nagios:
+    ok       = (0, 'OK')
+    warning  = (1, 'WARNING')
+    critical = (2, 'CRITICAL')
+    unknown  = (3, 'UNKNOWN')
+
+class TimeoutException(Exception):
+    pass
+
+def raise_timeout(signum, frame):
+    raise TimeoutException("Timeout")
+
+signal.signal(signal.SIGALRM, raise_timeout)
+
+def exit(status, message):
+    print status[1] + ': ' + message
+    sys.exit(status[0])
+
+parser = OptionParser(usage="""%prog [OPTIONS] CLUSTER_HOSTNAME --total-nodes <QUANTTY> --data-nodes <QUANTTY>
+
+Checks against an Elasticsearch cluster for the presence of a given host.
+The host can be specified as either the FQDN or short hostname.""")
+parser.add_option('-H', '--hostname',
+                  help='The hostname of the Elasticsearch cluster',
+                  dest='host',
+                  default=None)
+parser.add_option('-p', '--port',
+                  help='The port of the Elasticsearch cluster; default value is 9200',
+                  dest='port',
+                  type='int',
+                  default=9200)
+parser.add_option('-t', '--timeout',
+                  help='The number of seconds to wait for a response; default value is 50 [secs]',
+                  dest='timeout',
+                  type='int',
+                  default=50)
+parser.add_option('-u', '--user',
+                  help='Optional username for authentication',
+                  dest='username',
+                  default=None)
+parser.add_option('-P', '--password',
+                  help='Optional password for authentication',
+                  dest='password',
+                  default=None)
+parser.add_option('--total-nodes',
+                  help='',
+                  dest='total_nodes',
+                  type='int',
+                  default=None)
+parser.add_option('--data-nodes',
+                  help='',
+                  dest='data_nodes',
+                  type='int',
+                  default=None)
+
+o, args = parser.parse_args()
+
+if o.host is None:
+    exit(nagios.unknown, 'missing hostname option')
+
+if o.username is not None and o.password is not None:
+    pm = urllib2.HTTPPasswordMgrWithDefaultRealm()
+    pm.add_password(realm=None,
+                    uri='http://%s:%d/' % (o.host, o.port),
+                    user=o.username,
+                    passwd=o.password)
+    handler = urllib2.HTTPBasicAuthHandler(pm)
+    opener = urllib2.build_opener(handler)
+    urllib2.install_opener(opener)
+
+es_url = 'http://%s:%d/_cluster/health' % (o.host, o.port)
+
+try:
+    try:
+        signal.alarm(int(o.timeout))
+        f = urllib2.urlopen(es_url)
+    except HTTPError, e:
+        exit(nagios.unknown, 'HTTP error for %s, error code is %s' % (es_url, e))
+    except URLError, e:
+        exit(nagios.unknown, 'URL error for %s, error code %s' % (es_url, e))
+    except TimeoutException, e:
+        exit(nagios.unknown, 'Timeout accessing http://%s:%d' % (o.host, o.port))
+
+    try:
+        j = simplejson.load(f)
+    except:
+        exit(nagios.unknown, 'Unable to parse json from http://%s:%d' % (o.host, o.port))
+
+finally:
+    signal.alarm(0)
+
+message = 'Elasticsearch cluster "%s", [%d/%d/%d/%d/%d]' % (j['cluster_name'], j['active_primary_shards'], j['active_shards'], j['relocating_shards'], j['initializing_shards'], j['unassigned_shards'])
+
+if j['status'] == 'green':
+    message = 'Elasticsearch cluster in "green" state'
+    status = nagios.ok
+elif j['status'] == 'yellow':
+    message = 'Elasticsearch cluster in "yellow" state'
+    status = nagios.warning
+elif j['status'] == 'red':
+    message = 'Elasticsearch cluster in "RED" state'
+    status = nagios.critical
+else:
+    message = 'UNKNOWN: Can not examine state of the Elasticsearch cluster'
+    status = nagios.unknown
+    exit(status, message)
+
+if o.total_nodes is not None:
+    if o.total_nodes > j['number_of_nodes']:
+        status = nagios.critical
+    message += ', %d/%d node%s' % (j['number_of_nodes'], o.total_nodes, '' if o.total_nodes == 1 else 's')
+else:
+    message += ', %d node%s' % (j['number_of_nodes'], '' if j['number_of_nodes'] == 1 else 's')
+
+if o.data_nodes is not None:
+    if o.data_nodes > j['number_of_data_nodes']:
+        status = nagios.critical
+    message += ', %d/%d data node%s' % (j['number_of_data_nodes'], o.data_nodes, '' if o.data_nodes == 1 else 's')
+else:
+    message += ', %d data node%s' % (j['number_of_data_nodes'], '' if j['number_of_data_nodes'] == 1 else 's')
+
+exit(status, message)

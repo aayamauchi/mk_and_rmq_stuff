@@ -1,0 +1,9 @@
+echo "1. Please take server out of load balancer."
+echo "2. Restart cres daemons."
+echo "3. Put server back in load balancer."
+echo
+echo "jstat -gc output:"
+ssh ${NAGIOS_HOSTADDRESS} 'PATH=/usr/bin:/usr/local/bin
+x=`sudo /usr/local/diablo-jdk1.6.0/bin/jps -l | grep jboss | cut -f 1 -d\ `
+sudo /usr/local/diablo-jdk1.6.0/bin/jstat -gc $x'
+

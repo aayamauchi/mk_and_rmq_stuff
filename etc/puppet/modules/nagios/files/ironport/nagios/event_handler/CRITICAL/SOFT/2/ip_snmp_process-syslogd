@@ -1,0 +1,8 @@
+#!/usr/local/bin/bash
+
+if [[ "$NAGIOS_HOSTGROUPNAMES" == *linux* ]]; then
+    CMD="sudo /etc/init.d/syslog restart"
+else
+    CMD="sudo /etc/rc.d/syslogd restart"
+fi
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}"

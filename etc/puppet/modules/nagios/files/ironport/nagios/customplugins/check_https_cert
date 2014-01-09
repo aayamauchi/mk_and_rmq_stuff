@@ -1,0 +1,235 @@
+#!/usr/local/bin/perl
+#
+# check_https_cert - check a HTTPS Server with a Client-Certificate
+#
+# Copyright (c) 2009 Jens Ritter <jens.ritter@gmail.com>
+# 
+# This script requires : 
+# * LWP::UserAgent   ( libwww-perl )
+# * Crypt::SSLeay    ( libcrypt-ssleay-perl )
+# * Nagios::Plugin   ( cpan.org )
+#
+# Thanks to Jean-Marc Amiaud<jm@amiaud.org> for his check_mssql script- 
+# from which I had copy/paste the nice layout for check_*-scripts.
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+#
+#
+# 2011-07-25 - Mike Lindsey <mike@5dninja.net>
+#       Updated arg options and usage output to match.
+#       added --header flag for optional http request header submission
+#       tied $DEBUG to --verbose.
+
+
+#use lib "/usr/local/dom/lib/nagios/share/perl/5.8.8";
+use strict;
+use warnings;
+use Env;
+use vars qw($PROGNAME $VERSION);
+use File::Basename;
+use Nagios::Plugin;
+use LWP::UserAgent;
+
+#$PROGNAME=basename($0);
+$VERSION = '0.1.0';
+
+my $np = Nagios::Plugin->new( 
+	usage => "Usage: %s [-H <hostname> -p <port>]|[-U <url>] \n "
+                ."          -c <certfile> -k <keyfile> -a <cacert> \n "
+		."          -2 <p12filename> -pwd <p12password> -t <timeout> \n "
+                ."          [--header '<name:value,name2:value2>'] \n "
+                ."          [-o '<output text>'] [-f,--fail]",
+	version => $VERSION,
+	plugin  => $PROGNAME,
+	shortname => uc($PROGNAME),
+	blurb => 'Check https with client-certificate',
+	extra => "\n\nCopyright (c) 2009 Jens Ritter",
+	timeout => 10,
+);
+
+$np->add_arg(
+	spec => 'hostname|H=s',
+	help => "-H, --hostname=<hostname>\n"
+	   . '    Webserver Hostname. Ignored if a URL is passed',
+	required => 0
+);
+
+$np->add_arg(
+	spec => "port|p=i",
+	help => "optional port for https. Ignored if a URL is passed",
+	required => 0
+);
+
+$np->add_arg(
+	spec => 'url|U=s',
+	help => "Url to the Https",
+	required => 0
+);
+
+$np->add_arg(
+	spec => 'certfile|c=s',
+	help => 'PEM-Certificate filename',
+	required => 0
+);
+
+$np->add_arg(
+	spec => 'key|k=s',
+	help => 'PEM-key filename',
+	required => 0
+);
+
+$np->add_arg(
+	spec => 'cacert|a=s',
+	help => 'CA-Root PEM-Certificate filename',
+	required => 0
+);
+
+$np->add_arg(
+	spec => "p12|2=s",
+	help => "P12-Filename",
+	required => 0
+);
+
+$np->add_arg(
+	spec => "p12pass|p12passwd|pwd=s",
+	help => "Password for the P12-File",
+	required => 0
+);
+
+$np->add_arg(
+	spec => "timeout|t=s",
+	help => "Https-Timeout",
+	required => 0
+);
+
+$np->add_arg(
+        spec => "header=s",
+        help => "Name:Value HTTP Request Header CSV",
+        required => 0
+);
+
+$np->add_arg(
+        spec => "output|o=s",
+        help => "Optional output text",
+        required => 0
+);
+
+$np->add_arg(
+        spec => "fail|f+",
+        help => "OK status on HTTP failure only.",
+        required => 0
+);
+
+
+$np->getopts;
+
+my $DEBUG;
+if ($np->opts->verbose){
+        $ENV{HTTPS_DEBUG} = 1;
+        #$ENV{PERL_LWP_SSL_VERIFY_HOSTNAME} = 0;
+        $DEBUG=1;
+        #$ENV{SSL_verify_mode} = 0x00;
+}
+
+
+my $hostname = $np->opts->hostname ||""; print "hostname : $hostname\n" if ($DEBUG);
+my $certfile = $np->opts->certfile ||""; print "certfile : $certfile\n" if ($DEBUG);
+my $key  = $np->opts->key ||"";          print "key      : $key\n" if ($DEBUG);
+my $cacert=$np->opts->cacert ||"";	 print "cacert   : $cacert\n" if ($DEBUG);
+my $url  = $np->opts->url ||"";          print "url      : $url\n" if ($DEBUG);
+my $port = $np->opts->port ||443;        print "port     : $port\n" if ($DEBUG);
+my $p12  = $np->opts->p12 ||"";          print "p12      : $p12\n" if ($DEBUG);
+my $p12pw= $np->opts->p12pass ||"";      print "p12pw    : $p12pw\n" if ($DEBUG);
+my $timeout=$np->opts->timeout ||"";     print "timeout  : $timeout\n" if ($DEBUG);
+my $header=$np->opts->header ||"";       print "header   : $header\n" if ($DEBUG);
+my $output=$np->opts->output ||"";       print "output   : $output\n" if ($DEBUG);
+my $fail=$np->opts->fail ||"";           print "fail     : $fail\n" if ($DEBUG);
+
+# Checkin' 
+my $ok = 0;
+
+if ($cacert) {
+        $np->nagios_exit("UNKNOWN","CACert not found") unless (-e $cacert);
+        $np->nagios_exit("UNKNOWN","CACert is NOT a full filename") unless ($cacert =~ /^\//);
+}
+
+if ($certfile && $key ) {
+	$ok = 1;
+	unless ( -e $certfile && -e $key ) {
+		$np->nagios_exit('UNKNOWN',"$certfile or $key not found");
+	}
+	unless ( $certfile =~ /^\// && $key =~ /^\//) {
+		$np->nagios_exit("UNKNOWN","$certfile or $key is NOT a full filename");
+	}
+}
+if (!$ok && ( $p12 )) {
+	$ok = 1;
+	$np->nagios_exit('UNKNOWN',"$p12 not found") unless ( -e $p12);
+	$np->nagios_exit("UNKNOWN","$p12 is NOT a full filename") unless ($p12 =~/^\//);
+}
+
+if (!$ok) {
+	$np->nagios_exit('UNKNOWN',"A P12-file or certfile and keyfile needs to be choosen wisely");
+}
+
+unless ($hostname || $url ) {
+	$np->nagios_exit('UNKNOWN',"A hostname or a URL is deeply needed");
+}
+
+# now, i trust the user settings. .. let's begin the init-phase : 
+
+# Cert-Files :  
+if ($cacert) {#CA Cert
+        $ENV{HTTPS_CA_FILE} = $cacert;
+}
+if ($certfile) {# certfile + keyfile
+	$ENV{HTTPS_CERT_FILE} = $certfile;
+	$ENV{HTTPS_KEY_FILE} =  $key;
+} else { # p12 + p12pw
+	$ENV{HTTPS_PKCS12_FILE} = $p12;
+	$ENV{HTTPS_PKCS12_PASSWORD} = $p12pw;
+}
+
+if ($output) { # space pad
+        $output .= ' - ';
+}
+
+# doRequest
+my $ua = LWP::UserAgent->new;
+$ua->timeout($timeout);
+
+# headers
+my @headers;
+if ($header) {
+    my $name;
+    my $value;
+    foreach my $hdr (split(',', $header)) {
+        ($name, $value) = split(':', $hdr);
+        push (@headers, $name => $value);
+    }
+}
+
+my $resp;
+if ($url) { # by url
+	$resp = $ua->get($url, @headers);
+} else { # by hostname
+	$resp = $ua->get("https://$hostname:$port", @headers);
+}
+
+if (($resp->is_success and not $fail) or (not $resp->is_success and $fail)){
+	$np->nagios_exit('OK',$output . $resp->status_line);
+}
+$np->nagios_exit('CRITICAL',$output . $resp->status_line);

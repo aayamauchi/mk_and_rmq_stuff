@@ -1,0 +1,45 @@
+#!/usr/local/bin/bash
+#==============================================================================
+# System Check event handler
+# Note that there are System Check event handlers on other states too!
+# 2012-08-27 jramache
+#==============================================================================
+NAGIOSSTATC="/usr/local/ironport/nagios/bin/nagiosstatc"
+NTP_ALERTING=0
+echo "${NAGIOS_SERVICEOUTPUT}" | egrep -i '^(WARNING|CRITICAL).*\[ntp offset.*$' >/dev/null 2>&1
+if [ ${?} -eq 0 ]; then
+    NTP_ALERTING=1
+else
+    ${NAGIOSSTATC} -q "status service ${NAGIOS_HOSTADDRESS} System\ Check long_plugin_output" | cut -f6 -d\" | egrep -i '^(WARNING|CRITICAL).*\[ntp offset.*$' >/dev/null 2>&1
+    if [ ${?} -eq 0 ]; then
+        NTP_ALERTING=1
+    fi
+fi
+# Iterate over servers in ntp.conf, trying to sync against each until success
+#    on success, wait a few seconds then sync a second time (based on testing)
+#    if offset is still not under 1 second, sync again (3 times before giving up)
+CMD="for S in \`grep ^server /etc/ntp.conf |awk '{print \$NF}'\`
+do 
+    echo \"Trying \${S}\"
+    sudo /usr/sbin/ntpdate -4 -u \${S}
+    if [ \${?} -eq 0 ]; then
+        sleep 5
+        sudo /usr/sbin/ntpdate -4 -u \${S}
+        sleep 5
+        for T in {1..3}
+        do
+            if [ \"\`sudo /usr/sbin/ntpdate -4 -d \${S} | grep ^offset | awk '{x=\$NF; if (x<0) x=x*-1; if (x>=1.0) print 1; else print 0;}'\`\" == \"0\" ]; then
+                echo \"confirmed fixed.\"
+                break
+            else
+                echo \"not fixed, trying again (up to 3 times)...\"
+                sleep 2
+            fi
+        done
+        break
+    fi
+done"
+if [ ${NTP_ALERTING} -eq 1 ]; then
+    echo "Attempting to fix ntp time offset"
+    /usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}" 2>&1
+fi

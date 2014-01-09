@@ -1,0 +1,42 @@
+#!/usr/local/bin/bash
+#==============================================================================
+# ip_check_ft_counts-source-retest-kept
+# Restarts redlist services on offending host (hostname obtained from db).
+#==============================================================================
+# Throttle restarts (since *-from and *-kept usually fire around the same time)
+STATUS_FILE="/tmp/event_redlist_restart.tmp"
+SAFE_TIME=300   # seconds
+if [ -f "${STATUS_FILE}" ]; then
+    T_LAST_RESTART=`stat -f%m "${STATUS_FILE}"`
+    T_NOW=`date +%s`
+    T_AGE=$(( ${T_NOW} - ${T_LAST_RESTART} ))
+    if [ ${T_AGE} -lt ${SAFE_TIME} ]; then
+        echo "Restart skipped because one was already executed less than ${SAFE_TIME} seconds ago"
+        exit 1
+    fi
+fi
+echo `date +%s` > ${STATUS_FILE} 2>/dev/null
+
+# Retrieve offending hostname from db
+SQL="select hostname from ft_counts where counter_name='source:retest:2-kept' order by mtime desc limit 1"
+HOSTNAME=`echo ${SQL} | mysql -N -unagios -pthaxu1T -h ${NAGIOS_HOSTADDRESS} redlist`
+if [ "X${HOSTNAME}X" = "XX" ]; then
+    echo "empty hostname returned from db"
+    exit 1
+fi
+if [ "X`dig ${HOSTNAME} +short`X" = "XX" ]; then
+    echo "unable to resolve hostname resturned from db"
+    exit 1
+fi
+
+# Restart redlist
+CMD="sudo /usr/local/etc/rc.d/redlist.sh restart 2>&1 ; sudo /usr/local/etc/rc.d/registrar_inspector.sh restart 2>&1"
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${HOSTNAME} "${CMD}" 2>&1
+
+# Send a note to irc
+/usr/local/ironport/nagios/bin/ironcat.sh "nagios has tried to restart redlist on ${HOSTNAME}"
+
+# Send an email as well
+echo "Redlist restart issued on ${HOSTNAME} by nagios" | mail -s "NAGIOS event: ip_check_ft_counts-source-retest-from" egladsto@cisco.com
+
+exit 0

@@ -1,0 +1,19 @@
+#
+# $Id: //sysops/main/puppet/test/modules/demo/files/README#1 $
+# $DateTime: 2012/01/20 21:51:26 $
+# $Change: 457618 $
+# $Author: mhoskins $
+#
+
+IMPORTANT NOTE
+--------------
+
+Files placed here will be available to the module via something like:
+
+	file { '/path/to/foo':
+		ensure => 'file',
+		source => 'puppet:///modules/demo/foo',
+	}
+
+Just place all files in the top-level directory!
+

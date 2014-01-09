@@ -1,0 +1,5 @@
+echo ================================================
+echo Try checking /data/cacti/logs/cacti.log
+echo on cacti-poller1.soma.ironport.com
+echo ================================================
+

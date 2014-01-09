@@ -1,0 +1,13 @@
+# /etc/logrotate.d/uwsgi
+/var/log/updater/uwsgi-access.log /var/log/updater/uwsgi-error.log {
+    daily
+    size 10M
+    rotate 10
+    missingok
+    notifempty
+    compress
+    sharedscripts
+    postrotate
+        [ ! -f /var/run/updater/uwsgi.pid ] || kill -HUP `cat /var/run/updater/uwsgi.pid`
+    endscript
+}

@@ -1,0 +1,23 @@
+PATH=/bin:/usr/bin:/usr/local/bin
+VERBOSE=yes
+DEFAULT=/usr/local/ironport/nagios/mail/CES_Alert/
+LOGFILE=/usr/local/ironport/nagios/mail/CES_Alert/procmail.log
+SHELL=/bin/sh
+# Make sure www can move files.  limit access through dir permissions.
+UMASK=0111
+
+:0
+* ^TO.*
+{
+    LOG="Message looks good, accepting.
+"
+    :0c: # Dump into Nagios
+    |/usr/bin/python26 $DEFAULT/CES_Alert.py
+    :0   # Deliver locally.
+    $DEFAULT
+}
+
+LOG="Fell through
+"
+/dev/null
+

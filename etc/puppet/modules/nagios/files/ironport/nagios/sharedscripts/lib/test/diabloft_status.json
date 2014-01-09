@@ -1,0 +1,17 @@
+5b4d7efe3ab1c4e67025111472aac67e
+{'prod-avc-app1.vega.ironport.com:11080': {'start_time': 'Fri Apr 5 03:04:07 2013',
+					   'pid': 69150,
+					   'app': 'avc_update_daemon',
+					   'env': 'prod/avc',
+					   'link': 'prod-avc-app1.vega.ironport.com:11080',
+					   'node_state': 'standby',
+					   'node_id': 0,
+					   'hostname': 'prod-avc-app1.vega.ironport.com'},
+ 'prod-avc-app2.vega.ironport.com:11080': {'start_time': 'Fri Apr 5 03:04:03 2013',
+					   'pid': 49328,
+					   'app': 'avc_update_daemon',
+					   'env': 'prod/avc',
+					   'link': 'prod-avc-app2.vega.ironport.com:11080',
+					   'node_state': 'avc_publisher',
+					   'node_id': 0,
+					   'hostname': 'prod-avc-app2.vega.ironport.com'}}

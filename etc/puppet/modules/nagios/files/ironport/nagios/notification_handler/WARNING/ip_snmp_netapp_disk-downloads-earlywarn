@@ -1,0 +1,20 @@
+#!/usr/local/bin/bash
+#==============================================================================
+# ip_snmp_netapp_disk-downloads-earlywarn
+#
+# Note to highlight to prodops that this alert is an early warning on
+# volume usage, requiring attention to clean up the volume before it goes crit.
+#
+# RT:126564
+#
+# 20110313 jramache
+#==============================================================================
+echo
+echo "MAINTENANCE ALERT NOTICE"
+echo "This alert means that it's time to perform routine periodic"
+echo "maintenance on /vol/downloads to reduce storage consumption"
+echo "and prevent it from reaching a critical level."
+echo "Please do not resolve this ticket until maintenance has been"
+echo "performed. Visit the runbook entry for steps to follow."
+echo
+

@@ -1,0 +1,155 @@
+#!/usr/local/bin/perl
+#
+# SYNTAX:
+#	send_nsca_cached [cache_time]
+#
+# DESCRIPTION:
+#	Used to pass passive results. Caches results and submits at 5 second
+#	intervals by default. The cache time can be specified on 
+#	command line - 0 to send immediately
+#
+#	Requires Nagios 2.0+
+#
+#	Warning: this script needs to be invoked for a send_nsca to occur, so 
+#	if you only have 1 service on a slave that is run every minute, the
+#	minimum time between sends is 1 minute, regardless of the cache_time setting.
+#	So you should only use on a busy slave.
+#
+#	Warning 2: Do not use a cache time that is too large. Even a cache time of
+#	1 second will help performance dramatically on a busy slave.
+#
+# AUTHORS:
+#	Copyright (C) 2006 Altinity Limited
+#
+#    This file is part of Opsview
+#
+#    Opsview is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    Opsview is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with Opsview; if not, write to the Free Software
+#    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+#
+#
+# CHANGELOG:
+# v1.0.3 - miklinds@cisco.com, 14/01/2010
+# - Properly pass PERFDATA, support multi-line plugin output.
+# v1.0.2 - cedric.cabessa@uperto.com, 13/01/2009
+# - fork before sending data
+# v1.0.1 - Oliver Hookins, Anchor Systems, 07/03/2008
+# - Replaced hard coded nsca command with a single variable
+# - Changed file paths to reflect RHEL standards
+# - Altered output sub to handle both OCSP and OCHP commands
+#
+# v1.0.0 - Altinity Limited, 07/03/2008
+# - original downloaded version from http://altinity.blogs.com/dotorg/send_nsca_cached
+#
+#
+
+use strict;
+
+use Sys::Hostname;
+
+my $delimiter = "\x17";
+
+my $cache_time = $ARGV[0];
+$cache_time = 2 unless defined $cache_time;
+my $node = hostname();
+my $master = $ARGV[1];
+$master = 'mon.ops.ironport.com' unless defined $master;
+my $prefix = "/usr/local/nagios";
+my $host = $ARGV[2];
+my $service = $ARGV[3];
+my $state = $ARGV[4];
+my $output = $ARGV[5];
+$output = sprintf("%.3500s", $output);
+my $loutput = $ARGV[6];
+my $perf = $ARGV[7];
+my $lperf;
+($perf, $lperf) = split(/\n/, $perf, 2);
+
+my $olen = (3500 - length($output));
+$loutput = sprintf("%." . $olen . "s", $loutput);
+
+my $nsca_command = "$prefix/bin/send_nsca -H $master -c $prefix/etc/send_nsca.cfg";
+
+if ($cache_time == 0) {
+	open SEND_NSCA, "| $nsca_command";
+	print SEND_NSCA &format_output;
+	close SEND_NSCA;
+	exit;
+}
+
+my $cache_file = "$prefix/var/tmp/send_nsca.cache";
+my $now = time;
+my $last_updated;
+
+if (-e $cache_file) {
+	open CACHE, "+<", $cache_file;
+	$last_updated = <CACHE>;
+	#print "Last updated: ", scalar localtime $last_updated, $/;
+} else {
+	open CACHE, "+>", $cache_file;
+	print CACHE $now, $/;
+	$last_updated = time;
+	#print "New cache",$/;
+}
+
+if ($now - $last_updated < $cache_time) {
+	seek CACHE, 0, 2;	# Goto end
+	print CACHE &format_output;
+} else {
+	#child send_data, father exit
+        my $pid=fork();
+        if (not defined $pid) {
+                print STDERR "FATAL cannot fork \n";
+        }elsif ($pid==0){
+                open SEND_NSCA, "| $nsca_command";
+                print SEND_NSCA <CACHE>, &format_output;
+                close SEND_NSCA;
+                my $first = $?;
+                close CACHE;
+
+       	        # Update send_nsca status
+	        my $status_file = "$prefix/var/ocsp.status";
+	        open STATUS, ">", $status_file;
+	        if ($first == 0) {
+		        print STATUS "0";
+	                # Reset time if send was successful
+        	        open CACHE, ">", $cache_file;
+        	        print CACHE time, $/;
+
+	        } else {
+		        print STATUS "2";
+	                # Reset cache if send failed, but first copy failed file
+        	        open CACHE, "+>", $cache_file;
+                        seek CACHE, 0, 2;
+                        print CACHE &format_output;
+                        close CACHE;
+                        rename $cache_file, $cache_file . ".fail";
+
+                        # and now we clear the pipe.
+        	        open CACHE, ">", $cache_file;
+        	        print CACHE time, $/;
+	        }
+	        close CACHE;
+	        close STATUS;
+        }
+}
+
+exit;
+
+sub format_output {
+        if ($service eq "") {
+	        return "$host\t$state\t$output|$perf\n$loutput\npoller:$node $now|$lperf $delimiter";
+        } else {
+                return "$host\t$service\t$state\t$output|$perf\n$loutput\npoller:$node $now|$lperf $delimiter";
+        }
+}

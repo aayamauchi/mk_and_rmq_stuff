@@ -1,0 +1,14 @@
+#!/usr/local/bin/bash
+# RT:115793
+
+echo
+echo
+echo "*** Edit $0 on `hostname` to enable restarts ***"
+echo
+echo
+
+CMD="ps -auxww"
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}"
+
+CMD="sudo /usr/local/etc/rc.d/pruning_daemon.sh restart"
+#/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}"

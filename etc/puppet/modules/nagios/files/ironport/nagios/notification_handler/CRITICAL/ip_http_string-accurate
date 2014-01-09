@@ -1,0 +1,6 @@
+echo "SB.org abuse graphs:"
+echo "http://efficacy.soma.ironport.com/sborg_watch/sb_org_users`date +%Y-%m-%d`.html"
+echo
+echo "Top 10 IPs that have made requests to this host:"
+#ssh ${NAGIOS_HOSTADDRESS} 'grep -v 192.168 /var/log/httpd/www.senderbase.org/access.log | cut -d"," -f 1 | sort | uniq -c | sort -n | tail' 
+ssh ${NAGIOS_HOSTADDRESS} "grep -v 192.168 /var/log/httpd/www.senderbase.org/access.log | cut -d\  -f 1 | sort | uniq -c | sort -nr | head"

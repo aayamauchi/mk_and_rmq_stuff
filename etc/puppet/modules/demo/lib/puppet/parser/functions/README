@@ -1,0 +1,12 @@
+#
+# $Id: //sysops/main/puppet/test/modules/demo/lib/puppet/parser/functions/README#1 $
+# $DateTime: 2012/01/20 21:51:26 $
+# $Change: 457618 $
+# $Author: mhoskins $
+#
+
+IMPORTANT NOTE
+--------------
+
+This directory contains custom functions, written in Ruby.
+

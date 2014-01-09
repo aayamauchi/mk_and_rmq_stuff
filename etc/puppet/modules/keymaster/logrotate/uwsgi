@@ -1,0 +1,12 @@
+/var/log/keymaster/uwsgi-access.log /var/log/keymaster/uwsgi-error.log {
+    daily
+    size 10M
+    rotate 10
+    missingok
+    notifempty
+    compress
+    sharedscripts
+    postrotate
+        [ ! -f /var/run/keymaster/uwsgi.pid ] || kill -HUP `cat /var/run/keymaster/uwsgi.pid`
+    endscript
+}

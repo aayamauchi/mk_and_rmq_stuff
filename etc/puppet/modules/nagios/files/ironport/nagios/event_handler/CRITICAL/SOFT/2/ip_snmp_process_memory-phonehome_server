@@ -1,0 +1,9 @@
+#!/usr/local/bin/bash
+
+CMD="sudo /usr/local/etc/rc.d/phonehome_server.sh restart"
+
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}" 2>&1
+
+/bin/echo "Problem with Phonehome Server on ${NAGIOS_HOSTADDRESS}, restart attempted.  \
+Will escalate if problem continues." | /bin/mail -s "Nagios event: phonehome_server" stbu-ops-alerts@cisco.com
+

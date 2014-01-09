@@ -1,0 +1,228 @@
+#!/usr/bin/env python26
+#Daily SME Report for ProdOps about all alerts that were one day ago (yesterday)
+
+import csv
+import datetime
+import smtplib
+import sys
+import getpass
+import urllib2
+
+from string import Template
+from subprocess import Popen, PIPE
+from email.mime.text import MIMEText
+
+PEOPLE = {
+    # Paul
+    'ptakemur': ['dh', 'cres', 'sbrs', 'sb', 'sc', 'sbnprd'],
+    # Heather
+    'heastern': ['dh', 'cres', 'corpus', 'whiskey', 'case', 'casepkg',
+                 'casecluster', 'sa'],
+    # Jaki
+    'jahasan':  ['dh', 'cres'],
+    # Dian
+    'dboradji': ['feeds', 'anyconnect', 'pmbu', 'sbnp', 'ibnp', 'wbnp',
+                 'abnp', 'fbnp', 'ise', 'gatekeeper', 'ftp', 'dns',
+                 'perforcereplicas', 'keys', 'exports'],
+    # Bayley
+    'bamah':    ['feeds', 'anyconnect', 'pmbu', 'sbnp', 'ibnp', 'wbnp',
+                 'abnp', 'fbnp', 'ise', 'gatekeeper', 'ftp', 'dns',
+                 'perforcereplicas', 'keys', 'exports'],
+    # Vic
+    'vpantale': ['updates', 'sds', 'downloads', 'keymaster', 'pingfed',
+                 'hadoop'],
+    # Quinn
+    'quma':     ['updates', 'sds', 'downloads', 'keymaster', 'pingfed', 'ars',
+                 'hadoop'],
+    # Vera
+    'veromano': ['xbrs', 'avc', 'trafficcorpus', 'avc', 'vectorwbnp',
+                 'wbrsserver', 'wbrsruleui', 'securityhub', 'catbayes',
+                 'secweb', 'ibrs', 'wbrs', 'snowmass', 'vector',
+                 'wbrslookup', 'wbrsrule', 'threatcast', 'redlist', 'ipas',
+                 'ars', 'bsa', 'arm', 'fozzie', 'kelvin', 'aegis', 'toc',
+                 'vectorsbnp', 'analysis', 'uridbgen', 'efficacy', 'dmc',
+                 'stealth', 'maelstrom', 'dex'],
+    # Tomasso
+    'tcarrara': ['xbrs', 'avc', 'trafficcorpus', 'avc', 'vectorwbnp',
+                 'wbrsserver', 'wbrsruleui', 'securityhub', 'catbayes',
+                 'secweb', 'ibrs', 'wbrs', 'snowmass', 'vector',
+                 'wbrslookup', 'wbrsrule', 'threatcast', 'sbrs', 'sb', 'sc',
+                 'sbnprd'],
+    # Damian
+    'dpertkie': ['corpus', 'whiskey', 'case', 'casepkg', 'casecluster', 'sa',
+                 'redlist', 'ipas', 'bsa', 'arm', 'fozzie', 'kelvin', 'aegis',
+                 'toc', 'vectorsbnp', 'analysis', 'uridbgen', 'efficacy',
+                 'dmc', 'stealth', 'maelstrom', 'dex'],
+}
+
+TEMPLATE = Template("""
+<h1>[$report_date] Daily SME Report for $user</h1>
+<p>You're SME for the following products: $products</p>
+<table border=1>
+    <thead>
+    <tr>
+        <th>Timestamp</th>
+        <th>Product</th>
+        <th>Server</th>
+        <th>Service</th>
+        <th>Output</th>
+    </tr>
+    </thead>
+    <tbody>
+    $alerts
+    </tbody>
+</table>
+<p>OnCall Configuration for this week:</p>
+<pre>
+$oncall_info
+</pre>
+<p>If you have any questions, please contact to <a href=mailto:stbu-monops-level1@cisco.com>MonOps</a></p>
+<p>Thank you</p>
+""")
+
+
+def download_report(url='http://stbuops.ironport.com/nagios/csv/',
+                    filename='page-report.csv',
+                    error_reciever='stbu-monops-level1@cisco.com'):
+    """Generate url based on current time - 1 day and download to file.
+
+    :param url: url for downloading csv report.
+    :param filename: a name of downloaded file.
+    """
+    # Genrate a well-formatted date for url
+    timestamp = (
+        datetime.date.today() - datetime.timedelta(days=1)
+    ).strftime("%Y/%m/%d")
+    url += timestamp + "/to-now"
+    print "Downloading from %s as %s" % (url, filename)
+    try:
+        url_data = urllib2.urlopen(url).read()
+    except urllib2.URLError:
+        error = '<p>%s - Error downloading from <a href="%s">url</a></p>' % (
+            datetime.datetime.now(), url
+        )
+        send_mail(error, mto=error_reciever)
+        print "Error downloading"
+        sys.exit(1)
+    if not url_data.strip():
+        error = '<p>%s - No data at <a href="%s">url</a></p>' % (
+            datetime.datetime.now(), url
+        )
+        send_mail(error, mto=error_reciever)
+        print "Empty csv"
+        sys.exit(1)
+    with open(filename, 'wb') as downloaded:
+        downloaded.write(url_data)
+    print 'Download successful'
+
+
+def build_data_dict(csv_file):
+    """Generate a list off dictationaries with data from csv file where keys
+    are taken from csv header.
+
+    :param csv_file: A path to csv file.
+    """
+    data = []
+    with open(csv_file, 'rb') as cvsfile:
+        csvreader = csv.reader(cvsfile)
+        # Make headers from first column
+        headers = csvreader.next()
+        for item in csvreader:
+            data.append(
+                dict((key, value) for key, value in zip(headers, item))
+            )
+    return data
+
+
+def parse_reports(data_dict, employees=PEOPLE):
+    """Generate a dictationary where keys are emails of employees and values
+    are list of dictationaris with data from csv file
+
+    :param data_dict: Single item from a list generated by build_data_dict.
+    :param employees: A dict where keys are employee login and value is a list
+    of their projects (Defaults to PEOPLE global var).
+    """
+    result = dict((name + '@cisco.com', []) for name in PEOPLE.keys())
+    for name, products in employees.items():
+        for record in data_dict:
+            for key, value in record.items():
+                if key == 'product' and value in products:
+                    result[name + "@cisco.com"].append(record)
+    return result
+
+
+def format_as_html(alerts, email, oncall_info, template=TEMPLATE):
+    """Generate html table from template, add rows for each alert.
+
+    :param alerts: A list of person alerts.
+    :param template: A template of table, should contain table headers.
+    Defaults to TEMPLATE variable.
+    """
+    msg = ""
+    for alert in alerts:
+        row = '<tr><td>%s</td>\n<td>%s</td>\n<td>%s</td>\n<td>%s</td>\n'
+        row += '<td>%s</td>\n</tr>'
+        row = row % (
+            alert['time'], alert['product'], alert['host'],
+            alert['service'], alert['firstoutput']
+        )
+        msg += row
+    today = datetime.datetime.now().strftime('%Y/%m/%d')
+    # Need report_date, user, products and alerts.
+    context = {'report_date': today, 'user': email[0:email.index('@')],
+               'alerts': msg, 'products': ", ".join(
+                   sorted(set(alert['product'] for alert in alerts))
+               ), 'oncall_info': oncall_info
+               }
+    return template.substitute(context)
+
+
+def send_mail(html, mto, mfrom=getpass.getuser(), msubject="Report",
+              server='localhost'):
+    """Send html formatted mail using smtplib.
+
+    :param html: Email html message.
+    :param mto: Email reciever.
+    :param mfrom: Email sender.
+    :param msubject: Subject of email.
+    :param server: SMTP server.
+    """
+    msg = MIMEText(html, 'html')
+    msg["From"] = mfrom
+    msg["To"] = mto
+    msg["Subject"] = msubject
+    smtp = smtplib.SMTP(server)
+    smtp.sendmail(mfrom, [mto], msg.as_string())
+
+
+def get_current_oncall_info():
+    """Parse current oncall rotation info from output of viewoncall script."""
+    command = Popen(['/usr/local/ironport/nagios/bin/viewoncall', '--reminder',
+                     '--show=prodops'], stdout=PIPE, stderr=PIPE)
+    stdout, stderr = command.communicate()
+    start_index = stdout.index("~~~~~~~~~~~~~~~~~~~~~~~~~") + 25
+    end_index = stdout.index("Responsibilities by name")
+    return stdout[start_index:end_index].strip()
+
+
+if __name__ == '__main__':
+    csv_file = 'page-report.csv'
+    # Try to download csv file
+    download_report(filename=csv_file)
+    # Generate list of alerts. Each alert is a dict.
+    db = build_data_dict(csv_file)
+    # Generate dictationary where each key is person email and value is a list
+    # of alerts.
+    reports = parse_reports(db)
+    oncall_info = get_current_oncall_info()
+    for email, alerts in reports.items():
+        # if alerts list is not empty, make html table from it
+        if alerts:
+            html = format_as_html(alerts, email, oncall_info)
+        # if not, report that there is no alerts.
+        else:
+            html = '<p>No alerts today.</p>'
+        print "Sending reports to %s" % email
+        # Send generated html email to responsible person
+        send_mail(html, email)
+

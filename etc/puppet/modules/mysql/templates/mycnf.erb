@@ -1,0 +1,73 @@
+# $DateTime: 2012/03/07 20:27:57 $
+# $Change: 1 $
+# $Author: ajvijaya $
+
+
+# my.cnf template
+# mysql::config class uses this template to create a my.cnf file
+# Values for ServerId and Hostname are provided by Facter (Puppet)
+######################################################################
+
+# Common for all Applications
+[mysqld]
+connect_timeout                 =5 
+default-storage-engine          =innodb
+expire_logs_days                =10
+
+innodb_additional_mem_pool_size =64M
+innodb_autoextend_increment     =64
+innodb_data_file_path           =ibdata1:1024M:autoextend
+innodb_data_home_dir            =/data/mysql
+datadir				=/data/mysql
+
+innodb_file_format             =Barracuda
+innodb_file_format_check        
+innodb_file_format_max         =Barracuda 
+innodb_file_per_table           =1 
+
+innodb_flush_method             =O_DIRECT
+innodb_log_buffer_size          =8388608
+innodb_log_file_size            =512M
+innodb_log_files_in_group       =2
+innodb_log_group_home_dir       =/data/mysql
+
+slow_query_log=1
+
+max_allowed_packet              =16776192
+max_connect_errors              =999999999
+max_connections                 =500
+max_heap_table_size             =64M
+
+net_retry_count                 =1000000
+old_passwords                   =0
+open_files_limit                =5000
+
+query_cache_size                =8388608
+query_cache_type                =0
+
+read_buffer_size                =2M
+read_rnd_buffer_size            =2M
+
+slave_transaction_retries       =0
+
+sort_buffer_size                =32M
+
+sync_binlog                     =1
+
+table_cache                     =7000
+
+tmpdir                          =/data/tmp
+binlog_format=STATEMENT
+
+
+# Application specific data
+innodb_buffer_pool_instances    =5
+
+# Buffer_pool_size calculated dynamically based on the total memory available
+innodb_buffer_pool_size         =<buffer-pool-size>G
+
+# Set Hostname from Facter
+log_bin                         =/data/mysql_log/<host_name>-bin
+
+# Set serverId as combination of third and fourth octet of ip address
+server_id                       =<ip3><ip4>

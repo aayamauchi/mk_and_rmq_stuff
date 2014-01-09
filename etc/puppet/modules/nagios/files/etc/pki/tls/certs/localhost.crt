@@ -1,0 +1,81 @@
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number: 152 (0x98)
+        Signature Algorithm: md5WithRSAEncryption
+        Issuer: C=US, ST=California, L=San Bruno, O=IronPort Systems, Inc., OU=IT, CN=IronPort Systems Internal CA/emailAddress=itgroup@ironport.com
+        Validity
+            Not Before: Aug  8 23:09:31 2013 GMT
+            Not After : Aug  7 23:09:31 2016 GMT
+        Subject: C=US, ST=California, L=San Bruno, O=Cisco IronPort Systems, LLC, OU=MonOps, CN=mon.ops.ironport.com/emailAddress=stbu-ops-alerts@cisco.com
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+            RSA Public Key: (2048 bit)
+                Modulus (2048 bit):
+                    00:a5:b8:91:4a:79:5d:35:ff:c2:01:99:fa:fe:4f:
+                    51:e8:38:13:96:2b:65:17:d8:f0:44:26:e7:e6:f9:
+                    c1:7c:5c:49:78:18:87:4a:1a:b9:1b:a1:fc:e4:1e:
+                    d3:fe:39:d2:1c:5e:fb:cd:de:ee:5f:1d:25:6a:31:
+                    87:c3:13:b4:44:b6:49:5e:5d:79:bc:a6:e7:89:52:
+                    79:d2:7f:55:ca:f3:61:82:5d:86:63:49:d0:1c:a5:
+                    e2:d0:3e:02:f4:55:f6:36:7a:23:13:12:e8:6b:e8:
+                    d6:bb:39:5e:9b:3a:62:82:51:fb:e7:26:28:9e:7a:
+                    1a:ae:cf:61:e7:7b:d6:3e:29:92:68:df:dd:af:eb:
+                    01:75:c6:6b:33:a7:0f:ed:de:8b:2c:08:56:de:81:
+                    cd:73:7f:8f:fc:3d:b8:8f:25:ec:08:d0:09:4f:7c:
+                    ea:b7:81:24:46:f5:59:91:63:7d:38:39:92:52:ef:
+                    e2:eb:b0:00:46:c0:2f:02:6d:25:dd:ed:3b:8c:62:
+                    39:69:22:18:7a:9f:ea:75:fb:4d:e3:a2:0c:82:cb:
+                    2b:03:e1:43:12:b4:f2:ff:16:44:84:b6:b7:d0:ec:
+                    1d:5f:88:55:74:49:c0:c0:7d:7a:04:3b:c1:f3:40:
+                    d3:28:80:d3:f0:db:97:66:11:47:aa:2f:b5:2c:ed:
+                    08:bd
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Basic Constraints: 
+                CA:FALSE
+            Netscape Comment: 
+                OpenSSL Generated Certificate
+            X509v3 Subject Key Identifier: 
+                A4:59:34:80:F5:BF:C1:BB:48:8E:A4:C9:A9:0F:24:7F:9A:75:0B:6D
+            X509v3 Authority Key Identifier: 
+                keyid:09:28:5B:12:0C:DC:D4:6D:9A:73:55:8E:85:0D:76:C8:50:F8:1B:E9
+                DirName:/C=US/ST=California/L=San Bruno/O=IronPort Systems, Inc./OU=IT/CN=IronPort Systems Internal CA/emailAddress=itgroup@ironport.com
+                serial:00
+
+    Signature Algorithm: md5WithRSAEncryption
+        25:e0:40:4d:5b:81:32:ff:9e:eb:2d:d6:5a:8f:2e:58:04:9a:
+        1d:bc:cc:d1:04:c1:28:c0:0f:87:35:67:a3:36:ec:dd:0f:42:
+        49:be:00:0f:9d:0b:d9:98:7e:4e:f3:fa:7a:45:78:79:d4:b1:
+        29:85:2c:e0:46:fa:cb:67:48:b9:ae:f5:f1:11:21:a9:6b:27:
+        33:36:43:d7:40:16:28:73:56:c3:d1:b1:56:7e:bc:b8:6a:65:
+        29:11:65:71:fc:ef:88:e2:80:d4:81:b3:a1:e9:76:68:36:0b:
+        f9:ef:d1:b9:0f:e4:5b:e6:73:32:18:fa:a2:fc:2d:c1:ca:41:
+        e0:0f
+-----BEGIN CERTIFICATE-----
+MIIEoTCCBAqgAwIBAgICAJgwDQYJKoZIhvcNAQEEBQAwgbAxCzAJBgNVBAYTAlVT
+MRMwEQYDVQQIEwpDYWxpZm9ybmlhMRIwEAYDVQQHEwlTYW4gQnJ1bm8xHzAdBgNV
+BAoTFklyb25Qb3J0IFN5c3RlbXMsIEluYy4xCzAJBgNVBAsTAklUMSUwIwYDVQQD
+ExxJcm9uUG9ydCBTeXN0ZW1zIEludGVybmFsIENBMSMwIQYJKoZIhvcNAQkBFhRp
+dGdyb3VwQGlyb25wb3J0LmNvbTAeFw0xMzA4MDgyMzA5MzFaFw0xNjA4MDcyMzA5
+MzFaMIG2MQswCQYDVQQGEwJVUzETMBEGA1UECBMKQ2FsaWZvcm5pYTESMBAGA1UE
+BxMJU2FuIEJydW5vMSQwIgYDVQQKExtDaXNjbyBJcm9uUG9ydCBTeXN0ZW1zLCBM
+TEMxDzANBgNVBAsTBk1vbk9wczEdMBsGA1UEAxMUbW9uLm9wcy5pcm9ucG9ydC5j
+b20xKDAmBgkqhkiG9w0BCQEWGXN0YnUtb3BzLWFsZXJ0c0BjaXNjby5jb20wggEi
+MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCluJFKeV01/8IBmfr+T1HoOBOW
+K2UX2PBEJufm+cF8XEl4GIdKGrkbofzkHtP+OdIcXvvN3u5fHSVqMYfDE7REtkle
+XXm8pueJUnnSf1XK82GCXYZjSdAcpeLQPgL0VfY2eiMTEuhr6Na7OV6bOmKCUfvn
+Jiieehquz2Hne9Y+KZJo392v6wF1xmszpw/t3ossCFbegc1zf4/8PbiPJewI0AlP
+fOq3gSRG9VmRY304OZJS7+LrsABGwC8CbSXd7TuMYjlpIhh6n+p1+03jogyCyysD
+4UMStPL/FkSEtrfQ7B1fiFV0ScDAfXoEO8HzQNMogNPw25dmEUeqL7Us7Qi9AgMB
+AAGjggE8MIIBODAJBgNVHRMEAjAAMCwGCWCGSAGG+EIBDQQfFh1PcGVuU1NMIEdl
+bmVyYXRlZCBDZXJ0aWZpY2F0ZTAdBgNVHQ4EFgQUpFk0gPW/wbtIjqTJqQ8kf5p1
+C20wgd0GA1UdIwSB1TCB0oAUCShbEgzc1G2ac1WOhQ12yFD4G+mhgbakgbMwgbAx
+CzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlhMRIwEAYDVQQHEwlTYW4g
+QnJ1bm8xHzAdBgNVBAoTFklyb25Qb3J0IFN5c3RlbXMsIEluYy4xCzAJBgNVBAsT
+AklUMSUwIwYDVQQDExxJcm9uUG9ydCBTeXN0ZW1zIEludGVybmFsIENBMSMwIQYJ
+KoZIhvcNAQkBFhRpdGdyb3VwQGlyb25wb3J0LmNvbYIBADANBgkqhkiG9w0BAQQF
+AAOBgQAl4EBNW4Ey/57rLdZajy5YBJodvMzRBMEowA+HNWejNuzdD0JJvgAPnQvZ
+mH5O8/p6RXh51LEphSzgRvrLZ0i5rvXxESGpayczNkPXQBYoc1bD0bFWfry4amUp
+EWVx/O+I4oDUgbOh6XZoNgv579G5D+Rb5nMyGPqi/C3BykHgDw==
+-----END CERTIFICATE-----

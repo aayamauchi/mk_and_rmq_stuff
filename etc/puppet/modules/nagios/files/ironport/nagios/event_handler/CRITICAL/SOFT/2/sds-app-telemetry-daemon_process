@@ -1,0 +1,21 @@
+#!/usr/local/bin/bash
+#==============================================================================
+# sds-app-telemetry-daemon_process
+# Restarts telemetry_daemon on offending sds app host.
+#==============================================================================
+# Restart
+CMD="sudo /usr/local/ironport/sysops/sds/telemetry_daemon_hard_reset.sh"
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}" 2>&1
+
+MONITOR="`/usr/bin/basename ${0}`"
+
+# Notify
+H_NAME=`dig -x ${NAGIOS_HOSTADDRESS} +short 2>/dev/null | head -1 | sed 's/\.$//'`
+if [ "${H_NAME}" = "" ]; then
+    H_NAME="${NAGIOS_HOSTADDRESS}"
+fi
+MESG="Nagios issued restart of telemetry_daemon on ${H_NAME}. Will escalate if not successful."
+/usr/local/ironport/nagios/bin/ironcat.sh "${MESG}" 2>&1
+echo "${MESG}" | mail -s "Nagios event handler triggered: ${MONITOR}" stbu-sds-escalations@cisco.com,stbu-ops-alerts@cisco.com 2>&1
+
+exit 0

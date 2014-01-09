@@ -1,0 +1,20 @@
+#!/usr/local/bin/bash
+
+if [[ "$NAGIOS_SERVICEOUTPUT" == *not\ authenticated* || "$NAGIOS_SERVICEOUTPUT" == *ended\ unexpectedly* ]]
+then
+    PATH=/bin:/usr/bin:/usr/local/bin:/usr/local/ironport/nagios/bin
+    HOST=`nagiosstatc -q "status service $NAGIOS_HOSTNAME $NAGIOS_SERVICEDESC long_plugin_output" | cut -f6 -d\"`
+
+    HOST=`printf "%b" "$HOST" | tail -1 | awk '{ print $1 }' | awk -F: '{ print $2 }'`
+
+    CMD="mv /tmp/vmsess.${NAGIOS_HOSTNAME} /tmp/vmsess.${NAGIOS_HOSTNAME}.bad"
+    /usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${HOST} "${CMD}"
+
+    MESG="The following command was executed on ${HOST} in response to\n"
+    MESG="${MESG}${NAGIOS_SERVICEOUTPUT}\n${NAGIOS_LONGSERVICEOUTPUT}\n\n"
+    MESG="${MESG}$0 (CRITICAL/SOFT/1):\n\n"
+    MESG="${MESG}${CMD}\n\n"
+    MESG="${MESG}Will escalate if problem continues."
+    printf "%b" "${MESG}" | mail -s "NAGIOS event: VM session" miklinds@cisco.com
+fi
+

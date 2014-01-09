@@ -1,0 +1,54 @@
+DEFAULT=$HOME/mail/
+LOGFILE=$HOME/procmail.log
+SHELL=/bin/sh
+
+# We've already seen this email, no need to do anything more.
+:0:
+* ^X-RT-Loop-Prevention
+/dev/null
+
+# Undeliverable bounce
+:0:
+* ^Subject.*Undeliver.*
+/dev/null
+
+# Delivery report
+:0:
+* ^Content-Type.*report-type=delivery-status.*
+/dev/null
+
+# From: Mail Delivery Subsystem <MAILER-DAEMON@cisco.com>
+:0:
+* ^From.*MAILER-DAEMON.*
+/dev/null
+
+# From JIRA
+:0:
+* ^X-JIRA-FingerPrint.*
+/dev/null
+
+# Already in RT
+:0:
+* ^References.*RT-Ticket.*
+/dev/null
+
+# Autoreplies
+:0:
+* ^Subject.*AutoReply.*
+/dev/null
+
+:0:
+* ^FROM.*[a-z0-9]*@cisco.com
+* ^Subject.*PROBLEM.*(UNKNOWN|CRITICAL|WARNING|DOWN)
+{
+    :0 c
+    | ~/autoack/process_email.sh >> ~/autoack/autoack.log
+}
+
+:0:
+* ^FROM.*paul.takemura@101003@docomo.ne.jp
+* ^Subject.*PROBLEM.*(UNKNOWN|CRITICAL|WARNING|DOWN)
+{
+    :0 c
+    | ~/autoack/process_email.sh >> ~/autoack/autoack.log
+}

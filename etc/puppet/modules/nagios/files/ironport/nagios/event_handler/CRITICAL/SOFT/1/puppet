@@ -1,0 +1,7 @@
+#!/usr/local/bin/bash
+# Run puppet!
+
+PATH=/bin:/usr/bin:/usr/local/bin
+
+ssh nagios@$NAGIOS_HOSTNAME "sudo /etc/puppet/scripts/puppet_run.sh -afs"
+

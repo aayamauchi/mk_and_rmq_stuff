@@ -1,0 +1,184 @@
+#!/usr/bin/env python26
+#========================================================================
+# viewdowntime
+#
+# Quickly view downtime for a particular host or service, mainly to
+# verify that downtime is in effect.
+#
+# Options:
+#     --show     Examine host or service downtime, or both (comma sep)
+#     --host     Match host & service downtime by host name
+#     --service  Match service downtime by service name
+#     --contains Use 'contains' mode for host/service matching
+#
+# If host or service are empty or 'All', then all downtime will be
+# returned if they are chosen to be shown.
+#
+# If hosts are chosen to be shown and a service name is given, but no
+# hostname is given, then matching service downtime is shown and any
+# matching host downtime for hosts found in the service downtime will
+# be shown.
+#
+# Examples:
+#     Show all host downtime:
+#         viewdowntime --show=host
+#
+#     Show all service downtime:
+#         viewdowntime --show=service
+#
+#     Show host and service downtime for ops-mon-nagios3.lon5.sco.cisco.com
+#         viewdowntime --show=host,service --host=ops-mon-nagios3.lon5.sco.cisco.com
+#
+#     Show all service downtime if service name exactly matches 'ip_ipmi':
+#         viewdowntime --show=service --service=ip_ipmi
+#
+#     Show all service downtime where service name contains 'ipmi':
+#         viewdowntime --show=service --service=ipmi --contains
+#
+#     Show all service downtime where service name contains 'ipmi', plus
+#     show any host downtime records for hosts matches in service search:
+#         viewdowntime --show=host,service --service=ipmi --contains
+#
+# Output fields:
+#     "[HOST]" | "[SERVICE]"  # type of downtime record found
+#     hostname[/servicename]  # self explanatory
+#     comment                 # user comment (in quotes)
+#     expiration time/date    # human readable format
+#     user;start;end;duration # user is unix username or ui full name
+#                             # start time in seconds from epoch
+#                             # end time in seconds from epoch
+#                             # duration in seconds
+#
+# 2013-08-05 jramache
+#========================================================================
+import sys, os, simplejson, datetime, time
+from optparse import OptionParser
+
+nagiosstatc = "/usr/local/ironport/nagios/bin/nagiosstatc"
+
+parser = OptionParser()
+parser.add_option("--host", type="string", dest="host",
+                        default=None,
+                        help="Return downtime for specified host, or All")
+parser.add_option("--service", type="string", dest="service",
+                        default=None,
+                        help="Return downtime for specified service, or All")
+parser.add_option("--show", type="string", dest="show",
+                        default=None,
+                        help="What to show: host or service downtime, or both (comma sep)")
+parser.add_option("--contains", action="store_true", dest="contains",
+                        help="Service or host contains based match")
+(options, args) = parser.parse_args()
+
+# Validate what user wants to examine
+try:
+    show_list = options.show.lower().split(',')
+except:
+    print "\n*** error: improper --show parameter, must be --show={host[,service]}\n"
+    sys.exit(1)
+for s in show_list:
+    if s not in ['host','service']:
+       print "\n*** error: invalid show type: %s\n" % (s)
+       sys.exit(1)
+
+def get_nagios(nagiosstatc, query):
+    fh = os.popen('%s -q "%s" 2>/dev/null' % (nagiosstatc, query))
+    try:
+        json = simplejson.loads(fh.read())
+    except ValueError:
+        print "\n*** error: problem loading json from nagiosstatc\n"
+        sys.exit(1)
+    fh.close()
+    return json
+
+# Retrieve host and service downtime status from nagios
+hosts_in_dt = get_nagios(nagiosstatc, "status hostdowntime")
+services_in_dt = get_nagios(nagiosstatc, "status servicedowntime")
+
+results = {}
+results['hosts'] = []
+results['services'] = []
+
+# Find service downtime matching --service argument
+hosts_seen = []
+if ('service' in show_list):
+    for host in services_in_dt.keys():
+        if (host == options.host) or (options.host == 'All') or (options.host == None) or (options.host and options.contains and options.host.lower() in host.lower()):
+            host_dict = services_in_dt[host]
+            try:
+                for service in host_dict.keys():
+                    if (service == options.service) or (options.service == 'All') or (options.service == None) or (options.service and options.contains and options.service.lower() in service.lower()):
+                        try:
+                            service_dict = host_dict[service][0]
+                        except:
+                            continue
+                        try:
+                            results['services'].append('[SERVICE] %s/%s "%s" expires %s %s;%.0f;%.0f;%.0f' % (
+                                    host,
+                                    service,
+                                    service_dict['comment'],
+                                    time.strftime("%T %Y-%m-%d", time.localtime(service_dict['end_time'])),
+                                    service_dict['author'],
+                                    service_dict['start_time'],
+                                    service_dict['end_time'],
+                                    service_dict['duration']))
+                            if host not in hosts_seen:
+                                hosts_seen.append(host)
+                        except:
+                            pass
+            except:
+                pass
+
+# Find host downtime entries matching --host argument
+if ('host' in show_list):
+    for host in hosts_in_dt.keys():
+        if (host == options.host) or (options.host == 'All') or (options.host == None and options.service == None) or (options.host and options.contains and options.host.lower() in host.lower()):
+            try:
+                host_dict = hosts_in_dt[host][0]
+            except:
+                continue
+            results['hosts'].append('[HOST] %s "%s" expires %s %s;%.0f;%.0f;%.0f' % (
+                    host,
+                    host_dict['comment'],
+                    time.strftime("%T %Y-%m-%d", time.localtime(host_dict['end_time'])),
+                    host_dict['author'],
+                    host_dict['start_time'],
+                    host_dict['end_time'],
+                    host_dict['duration']))
+            if host not in hosts_seen:
+                hosts_seen.append(host)
+
+# Now match host downtime entries for all the hosts we found during
+# service downtime matching. This section applies if no host was given
+# to search for, but user still wants to see relevant host
+# downtime. It's sort of a trick.
+if ('host' in show_list) and (len(hosts_seen) > 0) and (options.host == None):
+    for host in hosts_in_dt.keys():
+        if (host in hosts_seen):
+            try:
+                host_dict = hosts_in_dt[host][0]
+            except:
+                continue
+            results['hosts'].append('[HOST] %s "%s" expires %s %s;%.0f;%.0f;%.0f' % (
+                    host,
+                    host_dict['comment'],
+                    time.strftime("%T %Y-%m-%d", time.localtime(host_dict['end_time'])),
+                    host_dict['author'],
+                    host_dict['start_time'],
+                    host_dict['end_time'],
+                    host_dict['duration']))
+
+if (len(results['hosts']) > 0) or (len(results['services']) > 0):
+    hit = True
+else:
+    hit = False
+
+for result in results['hosts']:
+    print result
+for result in results['services']:
+    print result
+
+if hit:
+    sys.exit(0)
+else:
+    sys.exit(1)

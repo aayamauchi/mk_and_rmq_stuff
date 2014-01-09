@@ -1,0 +1,4 @@
+#!/bin/sh
+
+PATH=/bin:/usr/bin:/usr/local/bin:/usr/local/ironport/nagios/customplugins
+check_mysql_process.py -H  prod-vectorwbnp-db-m1.vega.ironport.com -u nagios -p thaxu1T -U nagios -c 60 -k

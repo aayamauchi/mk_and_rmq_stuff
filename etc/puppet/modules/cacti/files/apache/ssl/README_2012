@@ -1,0 +1,9 @@
+CSR was able to be automatically reused from last year.
+
+Subject alternative name cacti.ops.ironport.com is also honored within this cert.
+
+The key is the same as last year and has been copied forward.
+
+The intermediate pem contains both intermediate parts, is x509 format, and is 
+the same as last years'.   Apache may be grumpy if you don't name it with a 
+.crt extension.

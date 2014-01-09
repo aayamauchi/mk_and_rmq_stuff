@@ -1,0 +1,19 @@
+#!/usr/local/bin/bash
+#==============================================================================
+# sbrs_data_client_instance 
+# Restarts sbrs_data_client on problem sbrs ns host.
+#==============================================================================
+# Restart
+CMD="sudo /usr/local/etc/rc.d/sbrs_data_client.sh restart 2>&1"
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}" 2>&1
+
+# Notify
+H_NAME=`dig -x ${NAGIOS_HOSTADDRESS} +short 2>/dev/null | head -1 | sed 's/\.$//'`
+if [ "${H_NAME}" = ""]; then
+    H_NAME="${NAGIOS_HOSTADDRESS}"
+fi
+MESG="Nagios issued restart of updater_connector on ${H_NAME}. Will escalate if not successful."
+/usr/local/ironport/nagios/bin/ironcat.sh "${MESG}" 2>&1
+echo "${MESG}" | mail -s "Nagios event handler triggered: sbrs_data_client_instance" stbu-ops-alerts@cisco.com 2>&1
+
+exit 0

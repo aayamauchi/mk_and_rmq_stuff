@@ -1,0 +1,48 @@
+Return-Path: <em7alert@cisco-ros.com>
+X-Original-To: ces-nagios@dev-mon-nagios1.vega.ironport.com
+Delivered-To: ces-nagios@dev-mon-nagios1.vega.ironport.com
+Received: from smtp-outbound.ironport.com (smtp-outbound.ironport.com [173.37.8.42])
+	by dev-mon-nagios1.vega.ironport.com (Postfix) with ESMTP id 7A2C12841F
+	for <ces-nagios@dev-mon-nagios1.vega.ironport.com>; Tue, 17 Jul 2012 07:20:18 -0700 (PDT)
+Received: from smtp.soma.ironport.com (HELO c601.soma.ironport.com) ([192.168.60.201])
+  by smtp-colo-in.ironport.com with ESMTP; 17 Jul 2012 07:20:18 -0700
+Received: from ops-mon-nagios1.vega.ironport.com (HELO mon.ops.ironport.com) ([192.168.102.112])
+  by c601.soma.ironport.com with ESMTP; 17 Jul 2012 07:20:19 -0700
+Received: by mon.ops.ironport.com (Postfix)
+	id 1F912114FA; Tue, 17 Jul 2012 07:20:18 -0700 (PDT)
+Delivered-To: dev-nagios@mon.ops.ironport.com
+Received: from esa1.hc4-93.smtpi.com (esa1.hc4-93.smtpi.com [74.201.116.71])
+	by mon.ops.ironport.com (Postfix) with SMTP id 16A94114F9
+	for <dev-nagios@mon.ops.ironport.com>; Tue, 17 Jul 2012 07:20:18 -0700 (PDT)
+Date: 23 Jul 2012 20:43:18 +0800
+Message-Id: <c1238c$741c69b=20108f45168fa397@esa1.hc4-93.smtpi.com>
+From: "IronPort C360 Alert" <em7alert@cisco-ros.com>
+To: dev-nagios@mon.ops.ironport.com
+Subject: Warning <System> esa1.fiorano.c3s2.smtpi.com: ISQ: Failed to delete MID
+	123456789 for user@example.com: Re...
+
+The Warning message is:
+
+ISQ: Failed to delete MID 123456789 for user@example.com: Reason delete failed goes here
+
+Last message occurred 3 times between Tue Jul 17 16:19:17 2012 and Tue Jul 17 16:19:23 2012.
+
+Version: 7.5.1-028
+Serial Number: 00221903C62E-93D1DH1
+Timestamp: 17 Jul 2012 16:20:18 +0200
+
+To learn more about alerts, please visit our Knowledge Base.  In many
+cases, you can find further information about this specific alert.  Please
+click the Knowledge Base link after logging into our Support Portal at:
+
+http://www.cisco.com/web/ironport/index.html
+
+If you desire further information, please contact your support provider.
+
+To open a support request for this issue, access the IronPort C360
+and issue the "supportrequest" command. The command sends an email with
+diagnostic information directly to your IronPort support provider to
+facilitate a rapid diagnosis of the problem.
+
+
+Thank you.

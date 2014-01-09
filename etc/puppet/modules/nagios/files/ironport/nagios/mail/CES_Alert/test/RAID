@@ -1,0 +1,45 @@
+Return-Path: <em7alert@cisco-ros.com>
+X-Original-To: ces-nagios@dev-mon-nagios1.vega.ironport.com
+Delivered-To: ces-nagios@dev-mon-nagios1.vega.ironport.com
+Received: from smtp-outbound.ironport.com (smtp-outbound.ironport.com [173.37.8.42])
+	by dev-mon-nagios1.vega.ironport.com (Postfix) with ESMTP id 6B9D028419
+	for <ces-nagios@dev-mon-nagios1.vega.ironport.com>; Fri, 13 Jul 2012 16:56:25 -0700 (PDT)
+Received: from smtp.soma.ironport.com (HELO c601.soma.ironport.com) ([192.168.60.201])
+  by smtp-colo-in.ironport.com with ESMTP; 13 Jul 2012 16:56:24 -0700
+Received: from ops-mon-nagios1.vega.ironport.com (HELO mon.ops.ironport.com) ([192.168.102.112])
+  by c601.soma.ironport.com with ESMTP; 13 Jul 2012 16:56:25 -0700
+Received: by mon.ops.ironport.com (Postfix)
+	id 1ED4711665; Fri, 13 Jul 2012 16:56:25 -0700 (PDT)
+Delivered-To: dev-nagios@mon.ops.ironport.com
+Received: from esa1.fiorano.c3s2.smtpi.com (esa1.fiorano.c3s2.smtpi.com [68.232.136.71])
+	by mon.ops.ironport.com (Postfix) with SMTP id 15E0511664
+	for <dev-nagios@mon.ops.ironport.com>; Fri, 13 Jul 2012 16:56:25 -0700 (PDT)
+Date: 23 Jul 2012 14:36:25 -0800
+Message-Id: <71f0c2$362cd45=00d301c7f9026393@esa1.fiorano.c3s2.smtpi.com>
+From: "IronPort C801 Alert" <em7alert@cisco-ros.com>
+To: dev-nagios@mon.ops.ironport.com
+Subject: Major <System> esa1.fiorano.c3s2.smtpi.com: A RAID-event has occured
+
+The Major message is:
+
+A RAID-event has occured: Disk fault
+
+Version: 7.6.1-025
+Serial Number: 42252E7B03234C3E27BA-7404878E0C53
+Timestamp: 23 Jul 2012 14:26:25 -0800
+
+To learn more about alerts, please visit our Knowledge Base.  In many
+cases, you can find further information about this specific alert.  Please
+click the Knowledge Base link after logging into our Support Portal at:
+
+http://www.cisco.com/web/ironport/index.html
+
+If you desire further information, please contact your support provider.
+
+To open a support request for this issue, access the IronPort C801
+and issue the "supportrequest" command. The command sends an email with
+diagnostic information directly to Cisco IronPort Customer Support to
+facilitate a rapid diagnosis of the problem.
+
+
+Thank you.

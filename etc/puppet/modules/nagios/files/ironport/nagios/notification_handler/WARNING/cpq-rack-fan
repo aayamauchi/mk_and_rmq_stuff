@@ -1,0 +1,9 @@
+#!/usr/local/bin/bash
+
+PATH=/bin:/usr/bin:/usr/local/bin
+
+echo In some cases, SNMP Traps will need to be manually cleared.
+echo If, after verification that the issue has been resolved, nagios has not cleared,
+echo click the subsequent link and clear manually.
+echo https://mon.ops.ironport.com/nagios/cgi-bin/cmd.cgi?cmd_typ=30\&host=${NAGIOS_HOSTADDRESS}\&service=${NAGIOS_SERVICEDESC}
+

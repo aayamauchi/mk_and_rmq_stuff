@@ -1,0 +1,7 @@
+echo ================================================
+echo Try checking /data/cacti/logs/cacti.log
+echo on cacti-poller1.soma.ironport.com
+echo You can also adjust poller load, via www user
+echo crontab, on cacti-poller1, 2, and 3.
+echo ================================================
+

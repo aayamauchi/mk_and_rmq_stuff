@@ -1,0 +1,36 @@
+#!/usr/local/bin/bash
+
+PATH=/bin:/usr/bin:/usr/local/bin:/usr/local/ironport/nagios/customplugins:/usr/local/nagios/bin
+CONFIG=/usr/local/nagios/etc/send_nsca.cfg
+NSCA=`hostname`
+
+HOST=$1
+SERVICE=$2
+STATUS=$3
+STATEFUL=$4
+MESSAGE=$5
+case $STATUS in
+"Critical")
+    CODE=2
+    ;;
+"Warning")
+    CODE=1
+    ;;
+"Normal")
+    CODE=0
+    ;;
+*)
+    CODE=3
+    ;;
+esac
+
+printf "%s\t%s\t%s\t%s\n" "$HOST" "$SERVICE" $CODE "$MESSAGE" | send_nsca -H $NSCA -c $CONFIG
+if [[ "$STATEFUL" == "0" ]] && [[ "$STATUS" != "0" ]]
+then
+    # Clear Nagios via delayed at now that the volatile ticket's gone through.
+    #printf "%s\t%s\t%s\t%s\n" "$HOST" "$SERVICE" 0 "$MESSAGE" | send_nsca -H $NSCA -c $CONFIG
+    CODE=`printf "%b" "$MESSAGE" | tail -1 | cut -d: -f2 | sed -e 's/ Severity//'`
+    echo "/usr/local/ironport/nagios/mail/CES_Alert/clear.sh $HOST $SERVICE \"$CODE\"" | at now + 15 minutes
+
+fi
+

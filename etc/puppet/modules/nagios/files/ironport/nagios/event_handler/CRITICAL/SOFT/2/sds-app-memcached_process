@@ -1,0 +1,19 @@
+#!/usr/local/bin/bash
+#==============================================================================
+# sds-app-memcached_process
+# Restarts memcached process on offending sds app host.
+#==============================================================================
+# Restart
+CMD="sudo /etc/init.d/memcached restart 2>&1"
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}" 2>&1
+
+# Notify
+H_NAME=`dig -x ${NAGIOS_HOSTADDRESS} +short 2>/dev/null | head -1 | sed 's/\.$//'`
+if [ "${H_NAME}" = ""]; then
+    H_NAME="${NAGIOS_HOSTADDRESS}"
+fi
+MESG="Nagios issued restart of memcached on ${H_NAME}. Will escalate if not successful."
+/usr/local/ironport/nagios/bin/ironcat.sh "${MESG}" 2>&1
+echo "${MESG}" | mail -s "Nagios event handler triggered: sds-app-memcached_process" stbu-sds-escalations@cisco.com,stbu-ops-alerts@cisco.com 2>&1
+
+exit 0

@@ -1,0 +1,63 @@
+# template format allows for newlines in text, but must
+# be denoted with both \n and a literal newline.
+# newlines are removed before JSON processing.
+# 
+# Any line starting with a # is removed as well.
+{
+"notification_type": "email",
+"subject": "
+** {% env NOTIFICATIONTYPE %} alert - {% env HOSTNAME %}/{% env SERVICEDESC %} is 
+{% env SERVICESTATE %} **",
+"body": "
+***** 
+{% if env _HOSTSOURCE_URL__CMS %}
+Khalifa 
+{% endif %}
+{% if 'pager' in script /usr/local/ironport/nagios/bin/nagios_escalation.py -H $HOSTNAME$ -S '$SERVICEDESC$' %}PAGING {% endif %}
+Nagios *****\n
+Notification Type: {% env NOTIFICATIONTYPE %} #{% env NOTIFICATIONNUMBER %}\n
+Host: {% env HOSTNAME %} ({% env HOSTADDRESS %})\n
+Service: {% env SERVICEDESC %} is {% env SERVICESTATE %} for {% env SERVICEDURATION %}\n
+Output: {% env SERVICEOUTPUT %}\n
+{% if env LONGSERVICEOUTPUT %}
+{% env LONGSERVICEOUTPUT %}\n
+{% endif %}
+{% if env SERVICEACKAUTHOR %}
+ACK [{% env SERVICEACKAUTHOR %}] {% env SERVICEACKCOMMENT %}\n
+{% endif %}
+\n
+Date/Time: {% env LONGDATETIME %}\n
+\n
+{% if env _HOSTSOURCE_URL__ASDB %}
+{% script /usr/local/ironport/nagios/bin/asdb_opsdoc.py --host $HOSTNAME$ %}\n
+{% script /usr/local/ironport/nagios/bin/asdb_dependencies.py --host $HOSTNAME$ %}\n
+\n
+{% endif %}
+https://mon.ops.ironport.com/nagios/\n
+# Action URLs are relative.
+https://mon.ops.ironport.com{% env SERVICEACTIONURL %}\n
+{% env HOSTNOTESURL %}\n
+{% env SERVICENOTESURL %}\n
+{% env _HOSTSOURCE_URL %}\n
+\n
+{% if script /usr/local/ironport/nagios/customplugins/notification_handler-ns.sh $HOSTNAME$ '$SERVICEDESC$' '$SERVICESTATE$' %}
+==================================================\n
+{% script /usr/local/ironport/nagios/customplugins/notification_handler-ns.sh $HOSTNAME$ '$SERVICEDESC$' '$SERVICESTATE$' %}
+{% endif %}
+==================================================\n
+Checkcommand:\n
+{% script /usr/local/ironport/nagios/bin/nagios_command.py -H $HOSTNAME$ -S '$SERVICEDESC$' --nopw %}\n
+To run or expand:\n
+eval `/usr/local/ironport/nagios/bin/nagios_command.py -H {% env HOSTNAME %} -S '{% env SERVICEDESC %}'`\n
+/usr/local/ironport/nagios/bin/nagios_command.py -H {% env HOSTNAME %} -S '{% env SERVICEDESC %}'\n
+\n
+{% if script /usr/local/ironport/nagios/bin/nagios_escalation.py -H $HOSTNAME$ -S '$SERVICEDESC$' %}
+==================================================\n
+Escalation tree for this service check:\n
+{% script /usr/local/ironport/nagios/bin/nagios_escalation.py -H $HOSTNAME$ -S '$SERVICEDESC$' %}\n
+{% endif %}
+==================================================\n
+Ticket Search URL\n
+{% script /usr/local/ironport/nagios/bin/jira-tickets.sh $HOSTNAME$ '$SERVICEDESC$' %}\n
+"
+}

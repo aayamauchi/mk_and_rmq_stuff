@@ -1,0 +1,19 @@
+# default: on 
+# description: NSCA 
+service nsca 
+{ 
+ Flags = REUSE 
+ socket_type = stream         
+ wait = no 
+ user = nagios
+ group = nagios
+ server = /usr/local/nagios/bin/nsca
+ server_args = -c /usr/local/nagios/etc/nsca.cfg --inetd 
+# log_on_success = PID HOST
+ log_on_success =
+ log_on_failure += USERID 
+ disable = no 
+ per_source = 100
+ instances = 500
+ only_from = 127.0.0.1 192.168.102.{103,104,105,106,115,116,117,118} 204.15.80.{150,151} 192.168.32.150 192.168.242.{57,58} 192.168.244.{57,58} 10.8.129.{102,112,113,114,115} 10.3.4.{19,20,47,48} 10.3.68.{19,20,47,48} 10.8.74.{67,68,79,80}
+} 

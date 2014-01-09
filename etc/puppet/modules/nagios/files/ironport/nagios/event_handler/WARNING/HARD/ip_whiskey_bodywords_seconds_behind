@@ -1,0 +1,55 @@
+#!/usr/local/bin/bash
+
+PATH=/bin:/usr/bin:/usr/local/bin:/usr/local/ironport/nagios/bin
+GETHOST="SELECT host FROM heartbeats WHERE cluster ='bodywords'"
+HOST=`echo ${GETHOST} | mysql -u nagios -pthaxu1T -N -h prod-whiskey-db-m1.soma.ironport.com whiskey_ft`
+CONTACTS=stbu-monitoring-notifications@cisco.com,case-eng@lists.ironport.com
+date >> /tmp/bodywords_eventhandler.txt
+if [ "${HOST}" != "" ]
+then
+    RECENT=`get_cacti_kpi.py -H ip-whiskey-dbm -D 'Whiskey RuleServer - Bodywords' -S secondsbehind -r /usr/local/bin/rrdtool --average -u100 -l0 --average -s -2100 -e -300`
+    OLD=`get_cacti_kpi.py -H ip-whiskey-dbm -D 'Whiskey RuleServer - Bodywords' -S secondsbehind -r /usr/local/bin/rrdtool --average -u100 -l0 --average -s -3900 -e -2100`
+    RECENT=`echo ${RECENT} | cut -f 2 -d\ `
+    OLD=`echo ${OLD} | cut -f 2 -d\ `
+    if [ "${OLD}" == "" ] || [ "${RECENT}" == "" ]
+    then
+        echo missing data, bodywords event_handler failing out | mail -s "BodyWords Failure" miklinds@cisco.com
+    else
+        OLD=${OLD/\.*}
+        RECENT=${RECENT/\.*}
+        if [ "${OLD}" -gt "${RECENT}" ]
+        then
+            RATE=`echo "${OLD} - ${RECENT}" | bc`
+            RATE=`echo "${RATE} / 30" | bc`
+            MESG="Issue with Body words, seconds_behind recovery rate is ${RATE} seconds per minute\n"
+            MESG="${MESG}Setting 2 hours downtime. Host is currently ${HOST}\n"
+
+            downtime -ghost -H prod-whiskey-db-m1.soma.ironport.com -S ip_whiskey_bodywords_timestamp -c "Automated Downtime" -unagios -E 7200
+            downtime -ghost -H prod-whiskey-db-m1.soma.ironport.com -S ip_whiskey_bodywords_seconds_behind -c "Automated Downtime" -unagios -E 7200
+            printf "%b" "${MESG}" | mail -s "Bodywords automated downtime notification."
+        else
+            RATE=`echo "${RECENT} - ${OLD}" | bc`
+            RATE=`echo "${RATE} / 30" | bc`
+            MESG="Issue with Body words, seconds_behind increase rate is ${RATE} seconds per minute\n"
+            MESG="${MESG}Setting 6 hours downtime, and restarting on ${HOST}.\n"
+
+            downtime -ghost -H prod-whiskey-db-m1.soma.ironport.com -S ip_whiskey_bodywords_timestamp -c "Automated Downtime" -unagios -E 21600
+            downtime -ghost -H prod-whiskey-db-m1.soma.ironport.com -S ip_whiskey_bodywords_seconds_behind -c "Automated Downtime" -unagios -E 21600
+            NOW=`date +%s`
+            AGE=`stat --format=%Y /tmp/whiskey_bodywords_restart.lock 2>/dev/null`
+            if [ ! -f /tmp/whiskey_bodywords_restart.lock ]
+            then
+                touch /tmp/whiskey_bodywords_restart.lock
+                AGE=0
+            fi
+            DELTA=`echo ${NOW} - ${AGE}`
+            if [ "${DELTA}" -gt 21600 ]
+            then
+                MESG=${MESG}`ssh ${HOST} "sudo /usr/local/etc/rc.d/whiskey_rule_server.sh restart" 2>&1`
+            else
+                MESG="${MESG}Restart skipped, last restart ${DELTA} seconds ago."
+            fi
+            printf "%b" "${MESG}" | mail -s "Bodywords automated restart notification."
+        fi
+    fi
+fi

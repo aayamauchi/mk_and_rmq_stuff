@@ -1,0 +1,1 @@
+/usr/local/ironport/nagios/customplugins/check_mysql_process.py -H ${NAGIOS_HOSTADDRESS} -u 'nagios' -p 'thaxu1T' -w 100 -c 200 -P

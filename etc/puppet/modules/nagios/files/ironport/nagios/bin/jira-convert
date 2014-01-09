@@ -1,0 +1,901 @@
+#!/bin/sh
+#\
+PATH="/bin:/usr/bin:/sbin:/usr/sbin:/usr/local/bin"
+# define tcl version \
+TCL=tclsh
+# preferred versions (lsearch -all requires 8.4 and latter) 8.4 -> 8.6 -> 8.5 \
+for v in 8.4 8.6 8.5; do type tclsh$v >/dev/null 2>&1 && TCL=tclsh$v; done
+# the next line restarts using tclsh \
+exec $TCL "$0" ${1+"$@"}
+
+##########################################################################
+#
+# Script-wrapper which convert options from XenSource Jira CLI client
+# to Atlassian Jira CLI client.
+# Please see TOOLS-539 for details.
+# Details about configuration file for JIRA projects see in TOOLS-617
+#
+# When Atlassian client is absent this script executes XenSource
+# client.
+#
+# Maksym Tiurin (mtiurin@cisco.com) 07/18/2013
+##########################################################################
+
+# add path to shared library
+set script_path [file dirname [info script]]
+# use shared library from customplugins
+lappend auto_path [file join $script_path "../customplugins/lib"]
+
+# import CLI & config parser
+package require opscfg
+# import logger module
+package require opslogger 0.2
+
+# default values
+namespace eval script_parameters {
+	# path to configuration file
+	variable script_config_file [file join $script_path "[file tail $argv0].conf"]
+	# path to Jira-maintenance flag file
+	variable jira_maintenance_flag_file "/tmp/JIRA_DOWN"
+	# maintenance mode flag
+	variable jira_maintenance 0
+	# default email for notifications
+	variable notifications_emails {ops_lviv@cisco.com}
+	# default SMTP server
+	variable SNMP_server "localhost"
+	# default MAIL FROM
+	variable mail_from "jira@sco.cisco.com"
+	# default mail send command (used when tcllib is not available)
+	variable mail_command "/bin/mail"
+	# path to JIRA client from XenSource
+	variable xensource_jira "/usr/local/ironport/nagios/bin/jira"
+	# path to JIRA client from Atlassian
+	variable atlassian_jira "/usr/local/ironport/nagios/jira-cli/lib/jira-cli-3.4.0.jar"
+	# Java parameters for Atlassian client
+	variable atlassian_jira_options {"java" "-mx256m" "-jar"}
+	# JIRA url
+	variable default_server "https://jira.sco.cisco.com"
+	# default JIRA user
+	variable default_username "nagios"
+	# password for default JIRA user
+	variable default_password "thaxu1T"
+	# prefix for session file
+	variable config_file ".jira-convert"
+	# lifetime of JIRA session
+	variable login_timeout 30
+	# number of connection attempts
+	variable retry_count 2
+	# count of JIRA client processes in memory (one process takes maximum 256M)
+	variable processes_count 15
+	# count of additional JIRA client processes in memory (only for issues search)
+	variable additional_processes_count 5
+	# actions which can use additional processes count pool
+	variable additional_processes_actions {"getIssueList"}
+	# sleep time in milliseconds when count of running processes >= processes count
+	variable processes_count_sleep 500
+	# maximum sleep time (milliseconds)
+	variable processes_count_sleep_max 60000
+	# minimum free memory for client
+	variable process_memory_min 260
+	# default log file
+	variable log_file [file join $script_path "[file tail $argv0].log"]
+	# default log level
+	variable log_level "info"
+}
+
+set USAGE "USAGE:
+        [file tail $argv0] \[OPTIONS\]
+
+Convert options from XenSource Jira CLI client format to Atlassian Jira CLI client format and run Atlassian client with converted options.
+Support following actions:
+  login, logout, comment, cat, take, update, close, resolve, getissues, create.
+Also support complex action \"takeandclose\" with 3 parameters issueId username close|resolve
+"
+
+if {[llength $argv] == 0} {
+	puts stderr $USAGE
+	exit 1
+}
+# config file parse
+if {[catch {opscfg::parse_file $::script_parameters::script_config_file} res]} {
+	puts stderr "Couldn't find or parse the configuration file"
+}
+# set script_parameters variables from configuration file
+foreach def_varname [::opscfg::variables "DEFAULT"] {
+	set ::script_parameters::[set def_varname] [::opscfg::getvar $def_varname "DEFAULT"]
+}
+# check log_level value
+if {[lsearch -exact {error warning info debug} $::script_parameters::log_level] == -1} {
+	set ::script_parameters::log_level "info"
+}
+# create logger instance
+if [catch {::opslogger::openlog -dateformat "%Y-%m-%dT%H:%M:%S" -appname "[file tail [info script]] ([pid])" \
+             -verbosity $::script_parameters::log_level -- $::script_parameters::log_file} script_logId] {
+	puts stderr "Unable to open log file"
+	global errorInfo
+	puts stderr "Tcl traceback: $errorInfo"
+	exit 1
+}
+proc log_msg {level message} {
+	global script_logId
+	if [catch {::opslogger::putslog "-[set level]" -- $script_logId $message} res] {
+		puts stderr "Unable to log [string toupper [set level]] message $message"
+		global errorInfo
+		puts stderr "Tcl traceback: $errorInfo"
+	} elseif {$res} {
+		puts stderr "Unable to log [string toupper [set level]] message $message"
+		puts stderr "Logger instance not found"
+	}
+}
+# check jira mode
+if [file exists $::script_parameters::jira_maintenance_flag_file] {
+	# jira in maintenance mode
+	set ::script_parameters::jira_maintenance 1
+	log_msg "info" "Start in Jira maintenance mode"
+} else {
+	set ::script_parameters::jira_maintenance 0
+	log_msg "info" "Start in normal mode"
+}
+# check that atlassian jira cli available
+if ![file readable $::script_parameters::atlassian_jira] {
+	# use XenSource client
+	log_msg "debug" "Use jira client from XenSource"
+	proc run_python_client {parameters_list} {
+		variable ::script_parameters::retry_count
+		variable ::script_parameters::xensource_jira
+		log_msg "info" "Run command: $::script_parameters::xensource_jira [join $parameters_list]"
+		for {set i 0} {$i < $::script_parameters::retry_count} {incr i} {
+			if ![catch {eval [list exec $::script_parameters::xensource_jira] [lrange $parameters_list 0 end]} output] {
+				break
+			} else {
+				log_msg "warning" "Unsuccessful attempt to execute the command: $::script_parameters::xensource_jira [join $parameters_list]"
+			}
+		}
+		log_msg "info" "Command output: $output"
+		puts $output
+		if {$i >= $::script_parameters::retry_count} {
+			# failed run
+			global errorCode
+			global errorInfo
+			log_msg "error" "Command execution error with traceback: $errorInfo"
+			if [regexp {CHILDSTATUS\s+\d+\s+(\d+)} $errorCode res child_exit_code] {
+				exit $child_exit_code
+			} else {
+				exit 1
+			}
+		}
+	}
+	# check jira mode
+	if !$::script_parameters::jira_maintenace {
+		# check complex action
+		set idx [lsearch -exact $argv "takeandclose"]
+		if {$idx != -1} {
+			# complex action - parse argv (takeandclose issueId username  close|resolve
+			log_msg "debug" "Complex action takeandclose was found"
+			set issueId [lindex $argv [expr $idx+1]]
+			set username [lindex $argv [expr $idx+2]]
+			if {[lindex $argv [expr $idx+3]] == "resolve"} {
+				set action "resolve"
+			} else {
+				set action "close"
+			}
+			run_python_client [list "take" $issueId]
+			run_python_client [list "update" $issueId "assignee" $username]
+			run_python_client [list $action $issueId]
+		} else {
+			# non-complex action
+			run_python_client $argv
+		}
+		# success run
+		log_msg "debug" "Commands executed successfully"
+		exit 0
+	}
+}
+# procedure to assign issue using REST API
+# return 1 when assignee was successful, 0 wen failed
+proc assign_issue {issueID assignee server username password} {
+	variable ::script_parameters::retry_count
+	# create command for assign issue
+	log_msg "info" "Try to assign issue $issueID to $assignee"
+	set force_assignee_command [list "curl" "-D-" "-k" "-u"]
+	lappend force_assignee_command "[set username]:[set password]"
+	lappend force_assignee_command "-X" "PUT" "--data" "\{\"name\": \"[set assignee]\"\}" "-H" "Content-Type: application/json"
+	lappend force_assignee_command "[string trimright $server { /}]/rest/api/2/issue/[set issueID]/assignee"
+	log_msg "debug" "Run command: [join $force_assignee_command]"
+	# assignee issue
+	for {set i 0} {$i < $::script_parameters::retry_count} {incr i} {
+		if ![catch {eval exec [lrange $force_assignee_command 0 end] [list "2>" "/dev/null"]} res] {
+			if [string match {*X-Frame-Options: ALLOW*} $res] {
+				break
+			} else {
+				log_msg "warning" "Unsuccessful attempt to assign issue $issueID to $assignee"
+			}
+		}
+	}
+	if {$i < $::script_parameters::retry_count} {
+		log_msg "debug" "Issue $issueID successfully assigned to $assignee"
+		return 1
+	} else {
+		log_msg "warning" "Assign issue $issueID to $assignee failed"
+		return 0
+	}
+}
+# xensource jira client options format is [options] action
+# array for options
+array set xensource_jira_options_array {}
+# parse global options
+::opscfg::getopt argv [list "-u" "--user=" "--user"] xensource_jira_options_array(user) $::script_parameters::default_username
+set ::script_parameters::config_file [file join $env(HOME) "[set ::script_parameters::config_file].[set xensource_jira_options_array(user)]"]
+::opscfg::getopt argv [list "-p" "--password=" "--password"] xensource_jira_options_array(password) $::script_parameters::default_password
+::opscfg::getopt argv [list "-s" "--server=" "--server"] xensource_jira_options_array(server) $::script_parameters::default_server
+# create issue options
+::opscfg::getopt argv [list "-s" "--summary=" "--summary"] xensource_jira_options_array(summary)
+::opscfg::getopt argv [list "-d" "--description=" "--description"] xensource_jira_options_array(description)
+::opscfg::getopt argv [list "-e" "--estimate=" "--estimate"] xensource_jira_options_array(estimate)
+::opscfg::getopt argv [list "-p" "--project=" "--project"] xensource_jira_options_array(project)
+::opscfg::getopt argv [list "-a" "--assignee=" "--assignee"] xensource_jira_options_array(assignee)
+::opscfg::getopt argv "-z" xensource_jira_options_array(priority)
+::opscfg::getopt argv [list "-t" "--type=" "--type"] xensource_jira_options_array(type)
+::opscfg::getopt argv [list "-y" "--parent=" "--parent"] xensource_jira_options_array(parent)
+# duedate is a named field in Atlassian client
+if [::opscfg::getopt argv [list "-D" "--duedate=" "--duedate"] datevalue] {
+	# convert datevalue to required format (from %Y-%m-%dT%H:%M:%S to %d/%b/%y)
+	if ![catch {clock format [clock scan $datevalue -gmt 1] -format "%d/%b/%y" -gmt 1} formated_datevalue] {
+		set xensource_jira_options_array(field) "duedate"
+		set xensource_jira_options_array(values) $formated_datevalue
+	} else {
+		log_msg "warning" "Unable to convert $datevalue to Jira compatible format. Format of value should be %Y-%m-%dT%H:%M:%S"
+	}
+}
+# create csv for custom fields
+while {[::opscfg::getopt argv [list "-f" "--field=" "--field"] field]} {
+	lappend custom_fields $field
+}
+if [info exists custom_fields] {
+	set xensource_jira_options_array(custom) [join $custom_fields ","]
+	unset custom_fields field
+}
+
+# check Atlasian JIRA client running processes count
+# and wait while processes count >= processes_count variable value
+proc check_processes_count {{additional_pool 0}} {
+	variable ::script_parameters::processes_count
+	variable ::script_parameters::additional_processes_count
+	variable ::script_parameters::processes_count_sleep
+	variable ::script_parameters::processes_count_sleep_max
+	variable ::script_parameters::process_memory_min
+	set sleep_time 0
+	if {$additional_pool} {
+		set max_jira_processes [expr $::script_parameters::processes_count + $::script_parameters::additional_processes_count]
+	} else {
+		set max_jira_processes $::script_parameters::processes_count
+	}
+	while 1 {
+		# get processes list
+		set processes_list [split [exec ps auxf] "\n"]
+		# get free memory
+		set memory_usage_list [eval list [lindex [split [exec free -m] "\n"] 1]]
+		# calculate free memory (free+cached in this case)
+		set free_memory [expr [lindex $memory_usage_list 3] + [lindex $memory_usage_list end]]
+		# check processes count and free memory
+		set check_processes_count [expr [llength [lsearch -all -regexp $processes_list {\s+java\s+.*jira-cli-?[0-9\.]*\.jar}]] >= $max_jira_processes]
+		set check_free_memory [expr $free_memory < $::script_parameters::process_memory_min]
+		if {$check_processes_count || $check_free_memory} {
+			if {$sleep_time < $::script_parameters::processes_count_sleep_max} {
+				after $::script_parameters::processes_count_sleep
+				incr sleep_time $::script_parameters::processes_count_sleep
+			} else {
+				if $check_free_memory {
+					log_msg "error" "No free memory to start new client ([set free_memory]MB free). Skipped"
+				} else {
+					log_msg "error" "Number of JIRA-client exceed threshold $max_jira_processes during [expr $::script_parameters::processes_count_sleep_max / 1000] seconds. Skipped"
+				}
+				exit 1
+			}
+		} else {
+			break
+		}
+	}
+}
+# procedure for executing external program
+# returns program output
+# args: command_line -    list of executed program with arguments
+#       command_file -    filename of file with actions for jira client
+#                         packet mode
+#       additional_step - if equal to 1 - do not exit after fail
+proc run_command {command_line {command_file {}} {additional_step 0}} {
+	variable ::script_parameters::retry_count
+	variable ::script_parameters::additional_processes_actions
+	# execute command
+	log_msg "info" "Run command: [join [lrange $command_line 0 end]]"
+	for {set i 0} {$i < $::script_parameters::retry_count} {incr i} {
+		# check can script use additional pool of processes
+		if [::opscfg::inlist $::script_parameters::additional_processes_actions [string trim [lindex $command_line [expr [lsearch -exact $command_line "--action"] + 1]] \"]] {
+			# action is contained in additional_processes_actions - use
+			# additional processes pool
+			check_processes_count 1
+		} else {
+			check_processes_count 0
+		}
+		if ![catch {eval exec [lrange $command_line 0 end]} output] {
+			break
+		} else {
+			log_msg "warning" "Unsuccessful attempt to execute the command: [join [lrange $command_line 0 end]]"
+		}
+	}
+	# remove command file if it present
+	if [file exists $command_file] {
+		log_msg "debug" "Removing command file $command_file"
+		file delete -force $command_file
+	}
+	# check is command executed unsuccessful
+	if {$i >= $::script_parameters::retry_count} {
+		global errorCode
+		global errorInfo
+		if {$additional_step} {
+			log_msg "warning" "Command execution error with traceback: $errorInfo"
+			log_msg "warning" "Command execution error code: $errorCode"
+			log_msg "warning" "Returned output: $output"
+			return $output
+		} else {
+			log_msg "error" "Command execution error with traceback: $errorInfo"
+			log_msg "error" "Command execution error code: $errorCode"
+			log_msg "error" "Returned output: $output"
+			exit 1
+		}
+	} else {
+		log_msg "debug" "Command output: $output"
+		return $output
+	}
+}
+proc complete_closing_action {_xensource_jira_options_array} {
+	upvar 1 $_xensource_jira_options_array xensource_jira_options_array
+	variable ::script_parameters::atlassian_jira_options
+	variable ::script_parameters::atlassian_jira
+	proc normalize_step_name {stepname} {
+		regsub -all -expanded {\W} [string map {{ } _} [string tolower $stepname]] {} normalized_step
+		return $normalized_step
+	}
+	# issueID from configuration file is replaced using subst
+	set issueID $xensource_jira_options_array(issue)
+	# get project name
+	set project [lindex [split $issueID "-"] 0]
+	# extra arguments for closing action
+	set extra_args_for_closing ""
+	# check project configuration section
+	if [::opscfg::inlist [::opscfg::sections] $project] {
+		# section exists
+		if [::opscfg::inlist [::opscfg::variables $project] "closing_action"] {
+			# set closing step
+			set xensource_jira_options_array(step) [::opscfg::getvar "closing_action" $project]
+		}
+		if [::opscfg::inlist [::opscfg::variables $project] "closing_action_args"] {
+			# set extra arguments to closing step
+			foreach {arg value} [::opscfg::getvar "closing_action_args" $project] {
+				# remove dashes from begin of key (dashes are added during cmdline creation
+				set xensource_jira_options_array([string trimleft $arg {-}]) $value
+				append extra_args_for_closing " " "--[string trimleft $arg {-}]" " $value"
+			}
+		}
+		if {[array names xensource_jira_options_array -exact "file"] != {}} {
+			set additional_actions {}
+			# check workflow_steps
+			if [::opscfg::inlist [::opscfg::variables $project] "workflow_steps"] {
+				set workflow_steps [::opscfg::getvar "workflow_steps" $project]
+				# available steps check required
+				set steps_check_line $::script_parameters::atlassian_jira_options
+				lappend steps_check_line $::script_parameters::atlassian_jira "--action" "getAvailableSteps" "--user" "$xensource_jira_options_array(user)" \
+				  "--password" "$xensource_jira_options_array(password)" "--server" "$xensource_jira_options_array(server)" \
+				  "--issue" "$xensource_jira_options_array(issue)" "--quiet"
+				if {[array names xensource_jira_options_array -exact "login"] != {}} {
+					lappend steps_check_line "--login" "$xensource_jira_options_array(login)"
+				}
+				# request available steps
+				set available_steps_list [lrange [split [run_command $steps_check_line] "\n"] 1 end]
+				set temp_list {}
+				foreach step $available_steps_list {
+					if [regexp -expanded {^"\d+","(.*)"} $step res match] {
+						lappend temp_list $match
+					}
+				}
+				set available_steps_list $temp_list ; unset temp_list
+				set preparation_last_step_idx [expr [llength $workflow_steps] - 2]
+				# check is close action possible
+				if ![::opscfg::inlist $available_steps_list [lindex $workflow_steps end]] {
+					# need additional actions
+					for {set i $preparation_last_step_idx} {$i >= 0} {incr i -1} {
+						set current_step [lindex $workflow_steps $i]
+						# check after step action
+						if [::opscfg::inlist [::opscfg::variables $project] "[normalize_step_name $current_step]_after_action"] {
+							# add action to list
+							set additional_actions [linsert $additional_actions 0 [subst -nobackslashes -nocommands [::opscfg::getvar "[normalize_step_name $current_step]_after_action" $project]]]
+						}
+						set extra_step_args ""
+						# check extended arguments for step
+						if [::opscfg::inlist [::opscfg::variables $project] "[normalize_step_name $current_step]_action_args"] {
+							# set extra arguments to step
+							foreach {arg value} [::opscfg::getvar "[normalize_step_name $current_step]_action_args" $project] {
+								# remove dashes from begin of key (dashes are added
+								# during cmdline creation)
+								append extra_step_args " " "--[string trimleft $arg {-}]" " $value"
+							}
+						}
+						# add additional action
+						set additional_actions [linsert $additional_actions 0 "--action progressIssue --issue $issueID --step \"$current_step\"[set extra_step_args]"]
+						# check before step action
+						if [::opscfg::inlist [::opscfg::variables $project] "[normalize_step_name $current_step]_before_action"] {
+							# add action to list
+							set additional_actions [linsert $additional_actions 0 [subst -nobackslashes -nocommands [::opscfg::getvar "[normalize_step_name $current_step]_before_action" $project]]]
+						}
+						# check if current step available
+						if [::opscfg::inlist $available_steps_list $current_step] {
+							# other steps not needed
+							break
+						}
+					}
+				}
+			}
+			# there is takeandclose action, writing actions to file
+			log_msg "debug" "Creating actions command file:"
+			set fileId [open $xensource_jira_options_array(file) w]
+			puts $fileId "--action updateIssue --issue $issueID --assignee $xensource_jira_options_array(user)"
+			log_msg "debug" "\t--action updateIssue --issue $issueID --assignee $xensource_jira_options_array(user)"
+			# write additional actions
+			foreach additional_action $additional_actions {
+				puts $fileId $additional_action
+				log_msg "debug" "\t[set additional_action]"
+			}
+			# check before closing action
+			if [::opscfg::inlist [::opscfg::variables $project] "before_closing_action"] {
+				# add action to actions file
+				set adact [subst -nobackslashes -nocommands [::opscfg::getvar "before_closing_action" $project]]
+				puts $fileId $adact
+				log_msg "debug" "\t[set adact]"
+			}
+			# add closing action to file
+			puts $fileId "--action getIssue --issue $issueID"
+			log_msg "debug" "\t--action getIssue --issue $issueID"
+			puts $fileId "--action progressIssue --issue $issueID --step \"[string trim $xensource_jira_options_array(step) \"]\" $extra_args_for_closing"
+			log_msg "debug" "\t--action progressIssue --issue $issueID --step \"[string trim $xensource_jira_options_array(step) \"]\" $extra_args_for_closing"
+			# check after closing action
+			if [::opscfg::inlist [::opscfg::variables $project] "after_closing_action"] {
+				# add action to actions file
+				set adact [subst -nobackslashes -nocommands [::opscfg::getvar "after_closing_action" $project]]
+				puts $fileId $adact
+				log_msg "debug" "\t[set adact]"
+			}
+			close $fileId
+		}
+	} elseif {[array names xensource_jira_options_array -exact "file"] != {}} {
+		# there is takeandclose action, writing actions to file
+		log_msg "debug" "Creating actions command file:"
+		set fileId [open $xensource_jira_options_array(file) w]
+		puts $fileId "--action updateIssue --issue $issueID --assignee $xensource_jira_options_array(user)"
+		log_msg "debug" "\t--action updateIssue --issue $issueID --assignee $xensource_jira_options_array(user)"
+		# add closing action to file
+		puts $fileId "--action getIssue --issue $issueID"
+		log_msg "debug" "\t--action getIssue --issue $issueID"
+		puts $fileId "--action progressIssue --issue $issueID --step $xensource_jira_options_array(step)"
+		log_msg "debug" "\t--action progressIssue --issue $issueID --step $xensource_jira_options_array(step)"
+		close $fileId
+	}
+}
+# after options parsing we have action in first item of argv
+set xensource_jira_action [lindex $argv 0]
+# check action
+switch -exact -- $xensource_jira_action {
+	"login" {
+		log_msg "debug" "Start login action"
+		# check if userid is present
+		if {[llength $argv] > 1} {
+			set xensource_jira_options_array(user) [lindex $argv 1]
+		}
+		set xensource_jira_options_array(action) login
+	}
+	"comment" {
+		log_msg "debug" "Start comment action"
+		# check issueid and comment text
+		if {[llength $argv] < 3} {
+			log_msg "error" "issue key and/or comment are not specified"
+			puts stderr "issue key and/or comment are not specified"
+			exit 1
+		}
+		set xensource_jira_options_array(issue) [lindex $argv 1]
+		set xensource_jira_options_array(comment) [lindex $argv 2]
+		set xensource_jira_options_array(action) addComment
+	}
+	"cat" {
+		log_msg "debug" "Start cat action"
+		# check issue key
+		if {[llength $argv] < 2} {
+			log_msg "error" "issue key is not specified"
+			puts stderr "issue key is not specified"
+			exit 1
+		}
+		set xensource_jira_options_array(issue) [lindex $argv 1]
+		set xensource_jira_options_array(action) getIssue
+	}
+	"take" {
+		log_msg "debug" "Start take action"
+		# check issue key
+		if {[llength $argv] < 2} {
+			log_msg "error" "issue key is not specified"
+			puts stderr "issue key is not specified"
+			exit 1
+		}
+		if [assign_issue [lindex $argv 1] $xensource_jira_options_array(user) $xensource_jira_options_array(server) $xensource_jira_options_array(user) $xensource_jira_options_array(password)] {
+			puts "[lindex $argv 1] was assigned to $xensource_jira_options_array(user)"
+			exit 0
+		} else {
+			log_msg "error" "Got error during assigning [lindex $argv 1] to $xensource_jira_options_array(user)"
+			exit 1
+		}
+	}
+	"update" {
+		log_msg "debug" "Start update action"
+		# check issue key, field and value
+		if {[llength $argv] < 4} {
+			log_msg "error" "issue key and/or field name and/or field value are not specified"
+			puts stderr "issue key and/or field name and/or field value are not specified"
+			exit 1
+		}
+		set xensource_jira_options_array(issue) [lindex $argv 1]
+		# check field name
+		set idx [lsearch {type summary resolution labels priority reporter assignee description components affectsVersions \
+		                    fixVersions environment security field values field2 values2 asVersion asComponent asCascadeSelect \
+		                    date dateFormat custom autoVersion autoComponent append appendText comment group role findReplace} [lindex $argv 2]]
+		if {$idx == -1} {
+			log_msg "error" "Unknown field name to update: [lindex $argv 2]"
+			puts stderr "Unknown field name to update: [lindex $argv 2]"
+			exit 1
+		}
+		if {[lindex $argv 2] == "assignee"} {
+			if [assign_issue [lindex $argv 1] [lindex $argv 3] $xensource_jira_options_array(server) $xensource_jira_options_array(user) $xensource_jira_options_array(password)] {
+				puts "[lindex $argv 1] was assigned to $xensource_jira_options_array(user)"
+				exit 0
+			} else {
+				log_msg "error" "Got error during assigning [lindex $argv 1] to $xensource_jira_options_array(user)"
+				exit 1
+			}
+		}
+		set xensource_jira_options_array([lindex $argv 2]) [lindex $argv 3]
+		set xensource_jira_options_array(action) updateIssue
+	}
+	"close" {
+		log_msg "debug" "Start close action"
+		# check issue key
+		if {[llength $argv] < 2} {
+			log_msg "error" "issue key is not specified"
+			puts stderr "issue key is not specified"
+			exit 1
+		}
+		set xensource_jira_options_array(issue) [lindex $argv 1]
+		set xensource_jira_options_array(step) "Close Issue"
+		set xensource_jira_options_array(action) progressIssue
+		complete_closing_action xensource_jira_options_array
+	}
+	"resolve" {
+		log_msg "debug" "Start resolve action"
+		# check issue key
+		if {[llength $argv] < 2} {
+			log_msg "error" "issue key is not specified"
+			puts stderr "issue key is not specified"
+			exit 1
+		}
+		set xensource_jira_options_array(issue) [lindex $argv 1]
+		set xensource_jira_options_array(step) "Update as Resolved"
+		set xensource_jira_options_array(action) progressIssue
+		complete_closing_action xensource_jira_options_array
+	}
+	"getissues" {
+		log_msg "debug" "Start getissues action"
+		# check search string
+		switch -exact -- [llength $argv] {
+			1 {
+				log_msg "error" "Search string for getissues is absent"
+				puts stderr "Search string for getissues is absent"
+				exit 1
+			}
+			2 {
+				set xensource_jira_options_array(search) [lindex $argv 1]
+				# default limit is 100
+				set xensource_jira_options_array(limit) 100
+				log_msg "debug" "default limit (100) for search is used"
+			}
+			default {
+				set xensource_jira_options_array(search) [lindex $argv 1]
+				set xensource_jira_options_array(limit) [lindex $argv 2]
+			}
+		}
+		set xensource_jira_options_array(action) getIssueList
+	}
+	"create" {
+		log_msg "debug" "Start create action"
+		set xensource_jira_options_array(action) createIssue
+	}
+	"logout" {
+		log_msg "debug" "Start logout action"
+		set xensource_jira_options_array(action) logout
+	}
+	"takeandclose" {
+		log_msg "debug" "Start takeandclose complex action"
+		# complex action
+		if {[llength $argv] < 4} {
+			log_msg "error" "for takeandclose issue, assignee and action should be specified"
+			puts stderr "for takeandclose issue, assignee and action should be specified"
+			exit 1
+		}
+		set command_file [exec mktemp]
+		log_msg "debug" "command file for complex action: $command_file"
+		set xensource_jira_options_array(action) run
+		set xensource_jira_options_array(file) $command_file
+		set xensource_jira_options_array(issue) [lindex $argv 1]
+		if {[lindex $argv 3] == "resolve"} {
+			set xensource_jira_options_array(step) "\"Update as Resolved\""
+		} else {
+			set xensource_jira_options_array(step) "\"Close Issue\""
+		}
+		complete_closing_action xensource_jira_options_array
+		assign_issue $xensource_jira_options_array(issue) [lindex $argv 2] $xensource_jira_options_array(server) $xensource_jira_options_array(user) $xensource_jira_options_array(password)
+	}
+	default {
+		log_msg "error" "Unknown action: $xensource_jira_action"
+		puts stderr "Unknown action: $xensource_jira_action"
+		exit 1
+	}
+}
+# procedure to send email message
+# returns 0 when ok, 1 when message did not send
+proc send_email {sender recipients email_server subject body} {
+	if {[catch {package require mime} res] || [catch {package require smtp}]} {
+		log_msg "debug" "tcllib not installed - use mail command"
+		# tcllib not installed - use mail command
+		variable ::script_parameters::mail_command
+		log_msg "info" "sending email using command: [set ::script_parameters::mail_command] -s \"[set subject]\" [join $recipients { }]"
+		if [catch {open "|[set ::script_parameters::mail_command] -s \"[set subject]\" [join $recipients { }]" r+} processId] {
+			global errorInfo
+			global errorCode
+			log_msg "warning" "Got error during email sending: $errorInfo"
+			log_msg "warning" "Command execution error code: $errorCode"
+			return 1
+		}
+		log_msg "debug" "Email body: $body"
+		puts $processId $body
+		flush $processId
+		close $processId
+	} else {
+		log_msg "debug" "use tcllib packages for sending email"
+		set token [mime::initialize -canonical text/plain -string $body]
+		mime::setheader $token Subject $subject
+		mime::setheader $token From $sender
+		mime::setheader $token To [join $recipients {,}]
+		log_msg "info" "Send email From $sender To [join $recipients {,}] with Subject $subject"
+		if [catch {smtp::sendmessage $token -recipients [join $recipients {,}] -servers $email_server} res] {
+			mime::finalize $token
+			global errorInfo
+			global errorCode
+			log_msg "warning" "Got error during email sending: $errorInfo"
+			log_msg "warning" "Procedure execution error code: $errorCode"
+			return 1
+		}
+		log_msg "debug" "Email body: $body"
+		mime::finalize $token
+	}
+	return 0
+}
+if $::script_parameters::jira_maintenance {
+	# jira in maintenance mode
+	switch -exact -- $xensource_jira_options_array(action) {
+		"getIssueList" {
+			# emulate empty search result
+			log_msg "debug" "emulate empty search result"
+			puts "key,created,summary"
+			exit 0
+		}
+		"createIssue" {
+			set recipients $::script_parameters::notifications_emails
+			# find appropriate recipients
+			if [::opscfg::inlist [::opscfg::sections] $xensource_jira_options_array(project)] {
+				# section exists
+				if [::opscfg::inlist [::opscfg::variables $xensource_jira_options_array(project)] "notifications_emails"] {
+					# set recipients
+					set recipients [::opscfg::getvar "notifications_emails" $xensource_jira_options_array(project)]
+				}
+			}
+			# send email instead of ticket creation
+			if [send_email $::script_parameters::mail_from $recipients $::script_parameters::SNMP_server $xensource_jira_options_array(summary) $xensource_jira_options_array(description)] {
+				log_msg "error" "Unable to send email message"
+				exit 1
+			}
+			# write ticket creation message
+			log_msg "debug" "Emulate ticket creation result - Created [set xensource_jira_options_array(project)]-0000 issue"
+			puts "Created [set xensource_jira_options_array(project)]-0000 issue"
+			exit 0
+		}
+		default {
+			# other actions do not supported in this mode
+			log_msg "error" "Action $xensource_jira_options_array(action) does not supported in Jira-maintenance mode"
+			puts stderr "Action $xensource_jira_options_array(action) does not supported in Jira-maintenance mode"
+			exit 1
+		}
+	}
+}
+# options collected - check login session
+if [file writable $::script_parameters::config_file] {
+	# session file exists - check file mtime
+	log_msg "debug" "session file exists - check file mtime"
+	if {[file mtime $::script_parameters::config_file] > [expr [clock seconds] - $::script_parameters::login_timeout]} {
+		# fresh session - read it
+		log_msg "debug" "use session file: $::script_parameters::config_file"
+		set fileId [open $::script_parameters::config_file r]
+		set xensource_jira_options_array(login) [read $fileId]
+		close $fileId
+	} else {
+		# old session - remove it
+		log_msg "debug" "session file expired - remove it"
+		file delete -force $::script_parameters::config_file
+	}
+}
+# login to jira
+if {([array names xensource_jira_options_array -exact "login"] == {}) || ($xensource_jira_options_array(action) == "login")} {
+	# login to jira and store session
+	log_msg "debug" "login to jira and store session"
+	set command_line [concat $::script_parameters::atlassian_jira_options [list $::script_parameters::atlassian_jira "--action" "login" "--user" \
+		   "$xensource_jira_options_array(user)" "--password" "$xensource_jira_options_array(password)" "--server" "$xensource_jira_options_array(server)"]]
+	log_msg "info" "Run command: [join [lrange $command_line 0 end]]"
+	for {set i 0} {$i < $::script_parameters::retry_count} {incr i} {
+		check_processes_count
+		if ![catch {eval exec [lrange $command_line 0 end]} output] {
+			break
+		} else {
+			log_msg "warning" "Unsuccessful attempt to execute the command: [join [lrange $command_line 0 end]]"
+		}
+	}
+	# check is command executed successful
+	if {$i < $::script_parameters::retry_count} {
+		set xensource_jira_options_array(login) $output
+		if [catch {open $::script_parameters::config_file w 0666} fileId] {
+			global errorInfo
+			puts stderr "Unable to write login session file"
+			log_msg "error" "Unable to write login session file"
+			log_msg "error" "Tcl traceback: $errorInfo"
+			exit 1
+		}
+		puts -nonewline $fileId $output
+		close $fileId
+		# force set write permissions for all users
+		file attributes $::script_parameters::config_file -permissions 0666
+		log_msg "debug" "Session file $::script_parameters::config_file was created"
+	}
+	if {$xensource_jira_options_array(action) == "login"} {
+		exit 0
+	}
+}
+# if logout - remove login session file
+if {$xensource_jira_options_array(action) == "logout"} {
+	if [file writable $::script_parameters::config_file] {
+		log_msg "debug" "Removing session file $::script_parameters::config_file"
+		file delete -force $::script_parameters::config_file
+	}
+	exit 0
+}
+# create main command line
+set command_line $::script_parameters::atlassian_jira_options
+lappend command_line $::script_parameters::atlassian_jira
+# if action create duedate should be set after ticket creation
+if {($xensource_jira_options_array(action) == "createIssue") && ([array names xensource_jira_options_array -exact "field"] != {})} {
+	if {$xensource_jira_options_array(field) == "duedate"} {
+		log_msg "debug" "Creating additional command line to set duedate of new issue"
+		set extra_command_line $::script_parameters::atlassian_jira_options
+		lappend extra_command_line $::script_parameters::atlassian_jira "--action" "updateIssue" "--user" "$xensource_jira_options_array(user)" \
+		  "--password" "$xensource_jira_options_array(password)" "--server" "$xensource_jira_options_array(server)" \
+		  "--field" "$xensource_jira_options_array(field)" "--values" "$xensource_jira_options_array(values)"
+		if {[array names xensource_jira_options_array -exact "login"] != {}} {
+			lappend extra_command_line "--login" "$xensource_jira_options_array(login)"
+		}
+		array unset xensource_jira_options_array field
+		array unset xensource_jira_options_array values
+	}
+}
+# remove unnecessary parameters for file action
+if {([info exists command_file]) && ($xensource_jira_options_array(action) == "run")} {
+	foreach option_key [array names xensource_jira_options_array] {
+		if ![::opscfg::inlist {action login server user password file} $option_key] {
+			# unnecessary parameter
+			unset xensource_jira_options_array($option_key)
+		}
+	}
+}
+foreach key [array names xensource_jira_options_array] {
+	lappend command_line "--[set key]" "$xensource_jira_options_array($key)"
+}
+# execute command
+if [info exists command_file] {
+	set output [run_command $command_line $command_file]
+} else {
+	set output [run_command $command_line]
+}
+# parse output
+log_msg "debug" "Parsing command output"
+switch -exact -- $xensource_jira_options_array(action) {
+	"createIssue" {
+		# find issue id
+		set idx [lsearch -regexp [split $output "\n"] {^Issue .* created with id}]
+		if {$idx != -1} {
+			regexp {^Issue ([A-Za-z]+-\d+) created with id} [lindex [split $output "\n"] $idx] march ticket_id
+			log_msg "info" "Created $ticket_id issue"
+			puts "Created $ticket_id issue"
+		} else {
+			log_msg "error" "unable to find ticket id in the jira."
+			log_msg "error" "CLI tool output: $output"
+			exit 1
+		}
+		if [info exists extra_command_line] {
+			log_msg "debug" "run extra command to set attributes of created ticket $ticket_id"
+			# add ticket ID
+			lappend extra_command_line "--issue" $ticket_id
+			# update new issue (additional command)
+			run_command $extra_command_line {} 1
+		}
+	}
+	"getIssue" {
+		# convert output
+		regsub -line -expanded {^Issue\skey} $output "Key" new_output
+		regsub -line -expanded {^customfield_10338} $new_output "Justification" output
+		regsub -line -expanded {^customfield_10434} $output "Portfolio" new_output
+		regsub -line -expanded {^customfield_10320} $new_output "Product" output
+		regsub -all -line -expanded {^([\w _]+)(\s+\.)+\s+:} $output {\1:} new_output
+		regsub -line -expanded {^Assignee\s*:\s*$} $new_output "Assignee: None" output
+		log_msg "info" "Command result: $output"
+		puts $output
+	}
+	"getIssueList" {
+		log_msg "info" "Command result: key,created,summary"
+		puts "key,created,summary"
+		# first line - issues count
+		# second line - header
+		foreach line [lrange [split $output "\n"] 2 end] {
+			# format of issue list is coma-separated with following fields:
+			# "Key","Id","Project","Type","Status","Priority","Assignee","Reporter","Created","Updated","Date due","Summary","Description","Components","Affects Versions","Fix Versions","Environment","Resolution","Votes"
+			if [regexp {^\"([A-Za-z]+-\d+)\",\"\d+\",\"([A-Za-z]+)\",\".*?\",\"(.*?)\",\"(.*?)\",\"(.*?)\",\"(.*?)\",\"(.*?)\",\"(.*?)\",\"(.*?)\",\"(.*?)\",\".*} $line res ticket_id project_id ticket_status ticket_priority ticket_assignee ticket_creator created_time modified_time ticket_due_date ticket_summary] {
+				# needed line
+				# convert datetime to needed format
+				if [regexp {^(\d+)\.(\d+)\.(\d+)\s+(\d+):(\d+)(:\d+)?$} $created_time res D M Y h m] {
+					set created_time [clock format [clock scan "$M/$D/$Y $h:$m:00"] -format {%Y-%m-%d %H:%M:%S}]
+				} else {
+					set created_time ""
+				}
+				log_msg "info" "Command result: $ticket_id,$created_time,$ticket_summary"
+				puts "$ticket_id,$created_time,$ticket_summary"
+			}
+		}
+	}
+	"run" {
+		# check that issue was assigned to user
+		if [regexp -expanded -line {^Assignee\s+(\s+\.)+\s+:\s*$} $output] {
+			# force assignee issue to current user
+			assign_issue $xensource_jira_options_array(issue) $xensource_jira_options_array(user) $xensource_jira_options_array(server) $xensource_jira_options_array(user) $xensource_jira_options_array(password)
+		}
+		if ![regexp -expanded {Successfully\s+progressed\s+issue:\s+([A-Z]+-\d+)\s+with\s+step} $output res match] {
+			# print output when issue was not closed
+			log_msg "warning" "Issue was not closed with output: $output"
+			puts $output
+		} else {
+			puts "$match was closed"
+			log_msg "info" "$match was closed"
+		}
+	}
+	default {
+		# just print result
+		log_msg "info" "Command result: $output"
+		puts $output
+	}
+}
+
+# Local Variables:
+# mode: tcl
+# coding: utf-8-unix
+# comment-column: 0
+# comment-start: "# "
+# comment-end: ""
+# End:

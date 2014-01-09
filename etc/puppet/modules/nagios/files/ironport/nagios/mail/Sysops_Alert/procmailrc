@@ -1,0 +1,110 @@
+PATH=/bin:/usr/bin:/usr/local/bin
+#VERBOSE=yes
+DEFAULT=/usr/local/ironport/nagios/mail/Sysops_Alert/
+LOGFILE=/usr/local/ironport/nagios/mail/Sysops_Alert/procmail.log
+SHELL=/bin/sh
+# Make sure www can move files.  limit access through dir permissions.
+UMASK=0111
+
+# Capture the message ID string (if any) for future reference in log entries.
+:0
+* ^Message-ID:
+{ MESSAGEID=`formail -cx "Message-ID:" | sed -e 's/^ //' ` }
+:0 E
+{ MESSAGEID='none' }
+
+:0
+* ^In-Reply-To:
+{ REPLYID=`formail -cx "In-Reply-To:" | sed -e 's/^ //' ` }
+:0 E
+{ REPLYID='none' }
+
+LOG="MessageID: ${MESSAGEID}; ReplyID: ${REPLYID}
+"
+
+# Undeliverable bounce
+:0
+* ^Subject.*Undeliver.*
+{
+    LOG="Undeliverable Bounce, Dropping.
+"
+    :0A
+    /dev/null
+}
+
+# Delivery report
+:0
+* ^Content-Type.*report-type=delivery-status.*
+{
+    LOG="Delivery Status message, Dropping.
+"
+    :0A
+    /dev/null
+}
+
+# From: Mail Delivery Subsystem <MAILER-DAEMON@cisco.com>
+:0
+* ^From.*MAILER-DAEMON.*
+{
+    LOG="Mailer Daemon, Dropping.
+"
+    :0A
+    /dev/null
+}
+
+# From JIRA
+:0
+* ^X-JIRA-FingerPrint.*
+{
+    LOG="From JIRA, Dropping.
+"
+    :0A
+    /dev/null
+
+}
+
+# Autoreplies
+:0
+* ^Subject.*AutoReply.*
+{
+    LOG="Autoreply, Dropping.
+"
+    :0A
+    /dev/null
+}
+
+# Reply to previously accepted message.  Drop it, just in case, and send a notice.
+:0
+* ? grep "${REPLYID}" $DEFAULT/msgid.txt
+{
+    LOG="We've already seen this issue, sending reply and dropping message.
+"
+    :0c: # Dump the message ID, to suppress replies to replies..
+    | ( echo "${MESSAGEID}" >> $DEFAULT/msgid.txt )
+    :0c
+    | ( formail -r -R From To ; cat $DEFAULT/reply.tmpl ) | /usr/sbin/sendmail -oi -t -f stbu-systemops@cisco.com -F 'Systems Operations'
+    :0
+    /dev/null
+}
+
+:0
+* ^TO.*page-sysops@
+{
+    LOG="Message looks good, accepting.  Sending reply and opening JIRA ticket.
+"
+    :0c: # Dump the message ID
+    | ( echo "${MESSAGEID}" >> $DEFAULT/msgid.txt )
+    :0c  # send a reply from systemops
+    | ( formail -r -R From To ; cat $DEFAULT/sysops.tmpl ) | /usr/sbin/sendmail -oi -t -f stbu-systemops@cisco.com -F 'Systems Operations'
+    :0c  # Create JIRA issue
+    ! sysops-nagios@ironport.com
+    :0   # Deliver locally.
+    $DEFAULT
+}
+
+:0
+LOG="Fell through
+"
+:0A
+/dev/null
+

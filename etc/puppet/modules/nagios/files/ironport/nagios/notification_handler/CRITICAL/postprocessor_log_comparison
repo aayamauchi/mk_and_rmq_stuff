@@ -1,0 +1,4 @@
+echo "DIAGNOSTIC OUTPUT"
+echo
+echo "/usr/local/ironport/nagios/customplugins/corpus_queue_log_outliers.py -H ${NAGIOS_HOSTNAME} -l post -v"
+/usr/local/ironport/nagios/customplugins/corpus_queue_log_outliers.py -H ${NAGIOS_HOSTNAME} -l post -v

@@ -1,0 +1,31 @@
+/var/log/cacti/cacti.log {
+    missingok
+    daily
+    notifempty
+    compress
+    create 0664 apache www 
+}
+
+/var/log/cacti/spine.log {
+    missingok
+    daily
+    notifempty
+    compress
+    create 0664 apache www 
+}
+
+/var/log/cacti/boost.log {
+    missingok
+    daily
+    notifempty
+    compress
+    create 0664 apache www 
+}
+
+/var/log/cacti/rsync.log {
+    missingok
+    daily
+    notifempty
+    compress
+    create 0664 apache www 
+}

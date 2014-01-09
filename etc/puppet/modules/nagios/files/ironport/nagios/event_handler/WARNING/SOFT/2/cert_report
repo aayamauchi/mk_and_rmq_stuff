@@ -1,0 +1,7 @@
+#!/usr/local/bin/bash
+#
+# Remove cert_report acknowledgement when it enters Warning state
+#
+now=`date +%s`
+commandfile='/usr/local/nagios/var/rw/nagios.cmd'
+/usr/bin/printf "[%b] REMOVE_SVC_ACKNOWLEDGEMENT;${NAGIOS_HOSTNAME};${NAGIOS_SERVICEDESC}\n" ${now} > ${commandfile}

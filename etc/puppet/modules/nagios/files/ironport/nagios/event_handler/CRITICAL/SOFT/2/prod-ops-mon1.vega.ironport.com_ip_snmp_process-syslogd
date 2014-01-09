@@ -1,0 +1,4 @@
+#!/usr/local/bin/bash
+
+CMD="sudo /etc/rc.d/syslogd restart"
+/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}"

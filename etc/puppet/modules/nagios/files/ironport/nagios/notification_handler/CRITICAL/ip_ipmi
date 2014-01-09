@@ -1,0 +1,1 @@
+ssh ${NAGIOS_HOSTADDRESS} 'echo ==== /var/run/ipmi_fault_detected ====; cat /var/run/ipmi_fault_detected' 

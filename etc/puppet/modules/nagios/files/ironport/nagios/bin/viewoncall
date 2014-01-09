@@ -1,0 +1,553 @@
+#!/usr/bin/env python26
+#========================================================================
+# viewoncall
+#
+# Outputs on call configuration and/or who is on call right now.
+#
+# 2010-10-18 jramache
+# 2011-05-12 jramache: rewritten in python using nagiosstatc
+# 2011-07-10 jramache: rewritten to show who is on call now based on
+#                      timeperiods defined in nagios
+# 2011-07-11 heastern: added --plain and --wiki options for output styles
+# 2011-07-19 jramache: monops expanded, and netops & storage added to cycle
+# 2011-07-19 heastern: --plain and --wiki updated to match, normalized
+#                      --wiki secondary header (opt.per group) normalized
+# 2011-09-23 jramache: added --ironcat option
+# 2011-11-01 jramache: added --reminder option and platops where needed
+# 2012-08-29 jramache: added --reminder support for all groups
+# 2013-01-11 jramache: tweaked to support 24x5 tier1 noc prodops primary
+#========================================================================
+import sys, os, simplejson, datetime, time
+from optparse import OptionParser
+
+nagiosstatc = "/usr/local/ironport/nagios/bin/nagiosstatc"
+
+pagergroups =           {    'prodops': ['primarypager','secondarypager','tier1-manager-sms','tier2-manager-sms'],
+                                 'dba': ['primarydbapager','secondarydbapager','tier1-dbamanager-sms','tier2-dbamanager-sms'],
+                              'monops': ['primarymonpager','secondarymonpager'],
+                          'oncallmgrs': ['tier1-manager-sms','tier2-manager-sms'],
+                              'netops': ['primarynetopspager','secondarynetopspager'],
+                             'platops': ['primaryplatpager','secondaryplatpager'],
+                          'platopskfa': ['primaryplatpagerkfa','secondaryplatpagerkfa'],
+                             'storage': ['primarystoragepager', 'secondarystoragepager', 'tier1-storagemanager-sms']
+                        }
+pagergroups_longname =  {    'prodops': 'Production Ops',
+                                 'dba': 'DataBase Admins',
+                              'monops': 'Monitoring Ops',
+                          'oncallmgrs': 'Manager - all major escalations',
+                              'netops': 'Network Ops',
+                             'platops': 'Platform Ops',
+                          'platopskfa': 'Platform Ops Khalifa',
+                             'storage': 'Storage Ops'
+                        }
+pagergroups_shortname = {    'prodops': 'ProdOps',
+                                 'dba': 'DBA',
+                              'monops': 'MonOps',
+                          'oncallmgrs': 'Manager',
+                              'netops': 'NetOps',
+                             'platops': 'PlatOps',
+                          'platopskfa': 'PlatOpsKFA',
+                             'storage': 'Storage'
+                        }
+pagergroups_h2_link =   { 'oncallmgrs': 'http://wikicentral.cisco.com/display/PRODOPS/OnCall+Managers',
+                             'storage': 'Main.StorageOps#OnCall_schedule'
+                        }
+pagergroups_h2_name =   { 'oncallmgrs': 'wikicentral On Call Managers List',
+                             'storage': 'Storage Ops escalation procedures'
+                        }
+ironcat_groups      =   { 'order': ['primarypager', 'secondarypager', 'primarydbapager', 'secondarydbapager'],
+                          'primarypager': 'primary',
+                          'secondarypager': 'secondary',
+                          'primarydbapager': 'dba primary',
+                          'secondarydbapager': 'dba secondary'
+                        }
+fts_shift_map_PST   =   { 'W1' : 'Weekend Primary (10pm Friday to 4pm Sunday)',
+                          'W2' : 'Weekend Secondary (4pm Friday to 4pm Sunday)',
+                          'W3' : 'Sunday Evening Primary (4pm to 9pm Sunday)',
+                          'W4' : 'Sunday Evening Secondary (9pm to Midnight Sunday)',
+                          'T1' : 'Primary (24x7)',
+                          'C'  : 'California Secondary (8am to 4pm, Monday-Friday)',
+                          'J'  : 'Japan Secondary (4pm to Midnight, Sunday-Thursday)',
+                          'L'  : 'London Secondary (Midnight to 8am, Monday-Friday)',
+                          'S'  : 'Secondary (4pm Sunday to 4pm Friday)'
+                        }
+fts_shift_map_PDT   =   { 'W1' : 'Weekend Primary (10pm Friday to 4pm Sunday)',
+                          'W2' : 'Weekend Secondary (4pm Friday to 4pm Sunday)',
+                          'W3' : 'Sunday Evening Primary (4pm to 9pm Sunday)',
+                          'W4' : 'Sunday Evening Secondary (9pm to Midnight Sunday)',
+                          'T1' : 'Primary (24x7)',
+                          'C'  : 'California Secondary (9am to 5pm, Monday-Friday)',
+                          'J'  : 'Japan Secondary (5pm to 1am, Sunday-Thursday)',
+                          'L'  : 'London Secondary (1am to 9am, Monday-Friday)',
+                          'S'  : 'Secondary (4pm Sunday to 4pm Friday)'
+                        }
+
+non_fts_map          =  { 'primarydbapager' : 'Primary DBA (24x7)',
+                          'secondarydbapager' : 'Secondary DBA (24x7)',
+                          'primarymonpager' : 'Primary MonOps (24x7)',
+                          'secondarymonpager' : 'Secondary MonOps (24x7)',
+                          'primarynetopspager' : 'Primary NetOps (24x7)',
+                          'secondarynetopspager' : 'Secondary NetOps (24x7)',
+                          'primaryplatpager' : 'Primary PlatOps (24x7)',
+                          'secondaryplatpager' : 'Secondary PlatOps (24x7)',
+                          'primaryplatpagerkfa' : 'Primary PlatOps Khalifa (24x7)',
+                          'secondaryplatpagerkfa' : 'Secondary PlatOps Khalifa (24x7)',
+                          'primarystoragepager' : 'Primary StorageOps (24x7)',
+                          'secondarystoragepager' : 'Secondary StorageOps (24x7)'
+                        }
+
+manager_map          =  { 'tier1-manager-sms' : 'Tier1 Manager (24x7)',
+                          'tier2-manager-sms' : 'Tier2 Manager (24x7)',
+                          'tier1-dbamanager-sms' : 'Tier1 DBA Manager (24x7)',
+                          'tier2-dbamanager-sms' : 'Tier2 DBA Manager (24x7)',
+                          'tier1-storagemanager-sms' : 'Tier1 Storage Manager (24x7)',
+                          'tier2-storagemanager-sms' : 'Tier2 Storage Manager (24x7)'
+                        }
+
+parser = OptionParser()
+parser.add_option("--show", type="string", dest="show",
+                        default="all", help="comma separated list of groups to show (default is all, use --list to see choices)")
+parser.add_option("--config", action="store_true", dest="config",
+                        default=False, help="show on call configuration")
+parser.add_option("--now", action="store_true", dest="now",
+                        default=False, help="show who is on call at this moment")
+parser.add_option("--wiki", action="store_true", dest="wiki",
+                        default=False, help="like 'now' except in wiki output format")
+parser.add_option("--plain", action="store_true", dest="plain",
+                        default=False, help="like 'now' except in plainer output format")
+parser.add_option("--ironcat", action="store_true", dest="ironcat",
+                        default=False, help="show prodops and dba on call now in irc format")
+parser.add_option("--reminder", action="store_true", dest="reminder",
+                        default=False, help="email reminder info for currently configured prodops on call")
+parser.add_option("--list", action="store_true", dest="list",
+                        default=False, help="display list of groups available for --show option")
+(options, args) = parser.parse_args()
+
+def show_list_usage(allgroups):
+    print "Choices for the --show option (comma separated):"
+    for G in sorted(allgroups):
+        print "    %s" % (G)
+
+allgroups = ['all']
+for PG in pagergroups.keys():
+    if PG not in allgroups:
+        allgroups.append(PG)
+    for CG in pagergroups[PG]:
+        if CG not in allgroups:
+            allgroups.append(CG)
+
+invalid_groups = []
+options.show = options.show.split(',')
+for i in xrange(len(options.show)):
+    options.show[i] = options.show[i].strip()
+    if options.show[i] not in allgroups:
+        invalid_groups.append(options.show[i])
+if len(invalid_groups):
+    print
+    for I in invalid_groups:
+        print "*** error: unknown group: %s" % (I)
+    print
+    show_list_usage(allgroups)
+    sys.exit(1)
+
+if (options.list):
+    show_list_usage(allgroups)
+    sys.exit(0)
+
+if (not (options.now or options.config or options.wiki or options.plain or options.ironcat or options.reminder)):
+    options.now = True
+    options.config = True
+
+def get_contact_info(contact, json):
+    info = { 'alias': '', 'email': '', 'notification_period': '' }
+    if 'alias' in json[contact]:
+        info['alias'] = json[contact]['alias']
+    if 'email' in json[contact]:
+        info['email'] = json[contact]['email']
+    if 'service_notification_period' in json[contact]:
+        info['notification_period'] = json[contact]['service_notification_period']
+    return info
+
+def get_nagios(nagiosstatc, item):
+    fh = os.popen('%s -q "object %s" 2>/dev/null' % (nagiosstatc, item))
+    try:
+        json = simplejson.loads(fh.read())
+    except ValueError:
+        print "\n*** error: problem loading json from nagiosstatc\n"
+        sys.exit(1)
+    fh.close()
+    return json
+
+def timerange_match(tr):
+    # Is current time within given time period time range (HH:MM-HH:MM)?
+    now = datetime.datetime.now()
+    hour = now.hour
+    minute = now.minute
+
+    start_match = False
+    end_match = False
+    t = tr.split('-')
+    s = map(int, t[0].split(':'))
+    e = map(int, t[1].split(':'))
+
+    # start
+    if (hour == s[0]):
+        if (minute >= s[1]):
+            start_match = True
+    elif (hour > s[0]):
+        start_match = True
+
+    # end
+    if (e[0] == 24):
+        if (hour < e[0]):
+            end_match = True
+    elif (hour == e[0]):
+        if (minute < e[1]):
+            end_match = True
+    elif (hour < e[0]):
+        end_match = True
+
+    if (start_match and end_match):
+        return True
+    else:
+        return False
+
+def tp_match(tp, tp_json):
+    # Is current time in given time period?
+    now = datetime.datetime.now()
+    weekday = now.strftime("%A").lower()
+    today = now.strftime("%Y-%m-%d")
+
+    match = False
+    specific_date_match = False
+
+    # First try to match on specific date entries (e.g., 2011-07-10).
+    for tp_item in tp_json[tp].keys():
+        if tp_item == today:
+            specific_date_match = True
+            timeranges = tp_json[tp][tp_item].split(',')
+            for tr in timeranges:
+                if timerange_match(tr):
+                    match = True
+                    break
+
+    # Specific dates override weekday settings in Nagios, so we honor
+    # that logic here and do not consider weekday times at all if a
+    # specific date setting was found.
+    if (not specific_date_match):
+        if weekday in tp_json[tp]:
+            timeranges = tp_json[tp][weekday].split(',')
+            for tr in timeranges:
+                if timerange_match(tr):
+                    match = True
+                    break
+
+    return match
+
+def receiving_notifications(contact, c_json, tp_json):
+    # Does the contact's notification period allow them to receive notifications right now?
+    info = get_contact_info(contact, c_json)
+    tp = info['notification_period']
+
+    # is current time excluded (holidays, etc...)?
+    for tp_item in tp_json[tp].keys():
+        if tp_item.lower() == 'exclude':
+            if tp_match(tp_json[tp][tp_item], tp_json):
+                return False
+
+    # otherwise, is current time included?
+    if tp_match(tp, tp_json):
+        return True
+    else:
+        return False
+
+def show_config(group, cg_json):
+    for G in group:
+        if G in cg_json and 'members' in cg_json[G]:
+            print "[config] %s: %s" % (G, ','.join(sorted(cg_json[G]['members'].split(','))))
+
+def show_now(group, c_json, cg_json, tp_json):
+    if group in cg_json and 'members' in cg_json[group]:
+        for M in sorted(cg_json[group]['members'].split(',')):
+            if '-sms' in M and receiving_notifications(M, c_json, tp_json):
+                info = get_contact_info(M, c_json)
+                print "[now] %s: %s (%s, %s, %s)" % (group, info['alias'], M, info['email'], info['notification_period'])
+
+def show_thistimeslot(group, c_json, cg_json, tp_json, W):
+    who = 0
+    if group in cg_json and 'members' in cg_json[group]:
+        for M in sorted(cg_json[group]['members'].split(',')):
+            if '-sms' in M and receiving_notifications(M, c_json, tp_json) and (who == 1):
+                ### OK, now say it
+		# no text printout for wiki section, at least not til I
+		# can say something that makes sense on a grid.
+                if 'p' in W:
+                      print "Pager-overlap for this and next timezone." 
+                who = 2
+            if '-sms' in M and receiving_notifications(M, c_json, tp_json) and (who == 0):
+                info = get_contact_info(M, c_json)
+                N = info['notification_period'].replace('FTS_','')
+		N = N.upper()
+                X = ''
+		if 'CALIFORNIA' in N:
+                   N = "CISCO HQ timezone"
+                   if 'w' in W:
+                      X = "<br> _San Jose, San Bruno, Las Vegas_ "
+                   if 'p' in W:
+                      X = "\nSan Jose, San Bruno, Las Vegas"
+                if 'LONDON' in N:
+                   N = "LONDON timezone"
+                if 'JAPAN' in N:
+                   N = "JAPAN timezone"
+                ### OK, now say it
+                if 'w' in W:
+                      print "<br> __This is the %s on-call team.__ %s" % (N, X)
+                if 'p' in W:
+                      print "This is the %s on-call team.%s" % (N, X)
+                who = 1
+
+def show_plain(group, c_json, cg_json, tp_json, metagroup):
+    if group in cg_json and 'members' in cg_json[group]:
+        for M in sorted(cg_json[group]['members'].split(',')):
+            if '-sms' in M and receiving_notifications(M, c_json, tp_json):
+                L = '%s Team' % (pagergroups_shortname[metagroup])
+                if 'primary' in group:
+                   L = '%s Primary' % (pagergroups_shortname[metagroup])
+                if 'secondary' in group:
+                   L = '%s Secondary' % (pagergroups_shortname[metagroup])
+                if 'tier1' in group:
+                   L = 'Tier 1 Manager'
+                if 'tier2' in group:
+                   L = 'Tier 2 Manager'
+                info = get_contact_info(M, c_json)
+                C = M.replace('-sms','')
+		C = C.replace('-J','')
+		C = C.replace('-L','')
+		C = C.replace('-C','')
+		C = C.replace('-W1','')
+		C = C.replace('-W2','')
+		C = C.replace('-W3','')
+		C = C.replace('-W4','')
+		C = C.replace('-T1','')
+		C = C.replace('-S','')
+                print "%s: %s (%s)" % (L, info['alias'], C)
+
+def show_wiki(group, c_json, cg_json, tp_json, metagroup):
+    if group in cg_json and 'members' in cg_json[group]:
+        for M in sorted(cg_json[group]['members'].split(',')):
+            if '-sms' in M and receiving_notifications(M, c_json, tp_json):
+                L = '%s Team' % (pagergroups_shortname[metagroup])
+                if 'primary' in group:
+                   L = '%s Primary' % (pagergroups_shortname[metagroup])
+                if 'secondary' in group:
+                   L = '%s Secondary' % (pagergroups_shortname[metagroup])
+                if 'tier1' in group:
+                   L = 'Tier 1 Manager'
+                if 'tier2' in group:
+                   L = 'Tier 2 Manager'
+                info = get_contact_info(M, c_json)
+                C = M.replace('-sms','')
+		C = C.replace('-J','')
+		C = C.replace('-L','')
+		C = C.replace('-C','')
+		C = C.replace('-W1','')
+		C = C.replace('-W2','')
+		C = C.replace('-W3','')
+		C = C.replace('-W4','')
+		C = C.replace('-T1','')
+		C = C.replace('-S','')
+                print '''| *%s* | %s | %s | <a href="http://wwwin-tools.cisco.com/dir/details/%s">CEC</a> |''' % (L, info['alias'], C, C)
+
+def outertable_header_wiki():
+    print '''<noautolink>\n<table border="1" bgcolor="#FFE7BB" cellpadding="6" cellspacing="1"\n      bordercolor="navy" borderwidth="1" width="95%">\n<tr valign="middle" align="center"><td>\n_This table is automatically generated._'''
+    t = datetime.datetime.now()
+    print "<br> *Last Updated:* %s" % t.strftime("%Y-%m-%d %H:%M:%S %Z")
+
+    print "<br> &nbsp; "
+    print "<br> &nbsp; "
+
+def outertable_boxtwo_wiki():
+    print
+    print '''</td><td align="left">'''
+    print "*Now (refresh web page if needed)* _your web browser may require shift click of refresh button to defeat caching_"
+    print '''%TABLE{ tablewidth="95%" cellpadding="4" cellspacing="0" cellborder="1" headercolor="#330000" headerbg="#FFF4E7" databg="#FFF4E7" }%'''
+    print '''| *%DISPLAYTIME{"$wday $day $month $year $hou:$min $tz"}%* ||'''
+    print "| *California/Las Vegas* | %LOCALTIME{PST8PDT}% |"
+    print "| *Japan* | %LOCALTIME{Asia/Tokyo}% |"
+    print "| *United Kingdom* | %LOCALTIME{Europe/London}% |"
+    print
+    print '''</td></tr><tr><td colspan="2" valign="middle" align="center">'''
+    print
+
+def outertable_footer_wiki():
+    print "</td></tr></table>\n</noautolink>"
+
+def tableheader_wiki():
+    print '''%TABLE{ tablewidth="95%" cellpadding="4" cellspacing="0" cellborder="1" headerbg="#CC7F4F" databg="#FFFFFF,#FFF4E7" }%'''
+
+def groupheader_wiki(PG):
+    print "| *On Call %s* ||||" % (pagergroups_longname[PG])
+    if PG in pagergroups_h2_link:
+    	print '''| * _link [[''' + pagergroups_h2_link[PG] + '''][''' + pagergroups_h2_name[PG] + ''']]_ * ||||'''
+
+# contact groups
+cg_json = get_nagios(nagiosstatc, "contactgroup")
+
+# contacts
+c_json = get_nagios(nagiosstatc, "contact")
+
+# time periods
+tp_json = get_nagios(nagiosstatc, "timeperiod")
+
+if (options.config):
+    cg_shown = []
+    for PG in sorted(pagergroups.keys()):
+        if ([o for o in options.show if o in ['all', PG] + pagergroups[PG]]):
+            for G in pagergroups[PG]:
+                if ([o for o in options.show if o in ['all', PG, G]]) and (G not in cg_shown):
+                    cg_shown.append(G)
+                    show_config([G], cg_json)
+
+if (options.now):
+    cg_shown = []
+    for PG in (pagergroups.keys()):
+        if ([o for o in options.show if o in ['all', PG] + pagergroups[PG]]):
+            for G in pagergroups[PG]:
+                if ([o for o in options.show if o in ['all', PG, G]]) and (G not in cg_shown):
+                    cg_shown.append(G)
+                    show_now(G, c_json, cg_json, tp_json)
+
+if (options.ironcat):
+    message_parts = []
+    for group in ironcat_groups['order']:
+        if group in cg_json and 'members' in cg_json[group]:
+            for M in sorted(cg_json[group]['members'].split(',')):
+                if '-sms' in M and receiving_notifications(M, c_json, tp_json):
+                    info = get_contact_info(M, c_json)
+                    message_parts.append("%s (%s)" % (info['alias'], ironcat_groups[group]))
+    for mp in message_parts[:-1]:
+        print "%s, " % (mp),
+    print message_parts[-1]
+
+if (options.reminder):
+    # ProdOps configuration for weekly email reminder
+    emails = []
+    roster_byname = {}
+    roster_byshift = {}
+    roster_bygroup = {}
+    try:
+        showgroup = options.show[0]
+    except:
+        showgroup = 'prodops'
+    if showgroup not in pagergroups:
+        showgroup = 'prodops'
+    if showgroup not in pagergroups:
+        showgroup = pagergroups.keys()[0]
+    for group in pagergroups[showgroup]:
+        if 'tier' in group:
+            if 'manager' not in roster_bygroup:
+                roster_bygroup['manager'] = []
+        else:
+            roster_bygroup[group] = []
+        if group in cg_json and 'members' in cg_json[group]:
+            for M in sorted(cg_json[group]['members'].split(',')):
+                if '-sms' in M:
+                    try:    l = M.index('-sms')
+                    except: M_nosms = M
+                    else:   M_nosms = M[:l]
+                    try:
+                        info = get_contact_info(M_nosms, c_json)
+                    except: 
+                        info = { 'alias': M, 'email': False, 'notification_period': False }
+                    if info['email'] and (info['email'] not in emails):
+                        emails.append("%s" % (info['email']))
+                    try:
+                        l = M.index('-sms-')
+                    except:
+                        if 'tier' in group:
+                            M_shift = manager_map[group]
+                        else:
+                            try:
+                                M_shift = non_fts_map[group]
+                            except:
+                                M_shift = group
+                    else:
+                        try:
+                            if time.strftime("%Z") == 'PDT':
+                                M_shift = fts_shift_map_PDT[M[(l+5):]]
+                            else:
+                                M_shift = fts_shift_map_PST[M[(l+5):]]
+                        except:
+                            M_shift = M
+                    if 'tier' in group:
+                        if M_shift not in roster_bygroup['manager']:
+                            roster_bygroup['manager'].append(M_shift)
+                    else:
+                        if M_shift not in roster_bygroup[group]:
+                            roster_bygroup[group].append(M_shift)
+                    if info['alias'] not in roster_byname:
+                        roster_byname[info['alias']] = []
+                    if M_shift not in roster_byname[info['alias']]:
+                        roster_byname[info['alias']].append(M_shift)
+                    if M_shift not in roster_byshift:
+                        roster_byshift[M_shift] = []
+                    if info['alias'] not in roster_byshift[M_shift]:
+                        roster_byshift[M_shift].append(info['alias'])
+
+    # header line contains email recipients
+    sys.stdout.write("email_recipients|")
+    for e in emails[:-1]:
+        sys.stdout.write("%s," % (e)),
+    print emails[-1]
+    print "Responsibilities by shift"
+    print "~~~~~~~~~~~~~~~~~~~~~~~~~"
+    managers_done = False
+    for G in pagergroups[showgroup]:
+        if 'tier' in G:
+            if managers_done:
+                continue
+            else:
+                GG = 'manager'
+                managers_done = True
+        else:
+            GG = G
+        for S in sorted(roster_bygroup[GG]):
+            print "%s" % (S)
+            for M in sorted(roster_byshift[S]):
+                print "    %s" % (M)
+    if showgroup == 'prodops':
+        print
+        print "Responsibilities by name"
+        print "~~~~~~~~~~~~~~~~~~~~~~~~"
+        for M in sorted(roster_byname.keys()):
+            print "%s" % (M)
+            for S in sorted(roster_byname[M]):
+                print "    %s" % (S)
+
+if (options.plain):
+    show_thistimeslot('primarypager', c_json, cg_json, tp_json, 'p')
+    for PG in ('prodops','dba','monops','netops','platops','storage','oncallmgrs'):
+        print ".......... On Call %s .........." % (pagergroups_longname[PG])
+        if ([o for o in options.show if o in ['all', PG] + pagergroups[PG]]):
+            for G in pagergroups[PG]:
+                if ([o for o in options.show if o in ['all', PG, G]]):
+                    show_plain(G, c_json, cg_json, tp_json, PG)
+
+if (options.wiki):
+    outertable_header_wiki()
+    show_thistimeslot('primarypager', c_json, cg_json, tp_json, 'w')
+    outertable_boxtwo_wiki()
+    tableheader_wiki()
+    for PG in ('prodops','dba','monops','netops','platops','storage','oncallmgrs'):
+        groupheader_wiki(PG)
+        if ([o for o in options.show if o in ['all', PG] + pagergroups[PG]]):
+            for G in pagergroups[PG]:
+                if ([o for o in options.show if o in ['all', PG, G]]):
+                    show_wiki(G, c_json, cg_json, tp_json, PG)
+        if PG != 'oncallmgrs':
+        	print "|||||"
+
+    # this blank line is important!
+    print
+    print '''%INCLUDE{"Main.OpsEngOnCallCalendar" section="Responsibilities"}%'''
+    outertable_footer_wiki()

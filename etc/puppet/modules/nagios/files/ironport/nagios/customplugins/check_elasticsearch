@@ -1,0 +1,117 @@
+#! /usr/bin/env python2.6
+
+# Simple Elasticsearch cluster node presence Nagios-style check
+# KFA-248 
+
+import sys
+import signal
+import urllib2
+from urllib2 import HTTPError, URLError
+import simplejson
+from optparse import OptionParser
+
+class nagios:
+    ok       = (0, 'OK')
+    warning  = (1, 'WARNING')
+    critical = (2, 'CRITICAL')
+    unknown  = (3, 'UNKNOWN')
+
+class TimeoutException(Exception):
+    pass
+
+def raise_timeout(signum, frame):
+    raise TimeoutException("Timeout")
+
+signal.signal(signal.SIGALRM, raise_timeout)
+
+def exit(status, message):
+    print status[1] + ': ' + message
+    sys.exit(status[0])
+
+parser = OptionParser(usage="""%prog [OPTIONS] HOSTNAME
+
+Checks against an Elasticsearch cluster for the presence of a given host.
+The host can be specified as either the FQDN or short hostname.""")
+parser.add_option('-H', '--hostname',
+                  help='The hostname of the Elasticsearch cluster',
+                  dest='host',
+                  default=None)
+parser.add_option('-p', '--port',
+                  help='The port of the Elasticsearch cluster; default value is 9200',
+                  dest='port',
+                  type='int',
+                  default=9200)
+parser.add_option('-t', '--timeout',
+                  help='The number of seconds to wait for a response; default value is 50 [secs]',
+                  dest='timeout',
+                  type='int',
+                  default=50) #Nagios waiting for response 59 secs so I set default to 50
+parser.add_option('-u', '--user',
+                  help='Optional username for authentication',
+                  dest='username',
+                  default=None)
+parser.add_option('-P', '--password',
+                  help='Optional password for authentication',
+                  dest='password',
+                  default=None)
+
+o, args = parser.parse_args()
+
+
+if len(args) == 0:
+    message = 'Missing option[s]/parameter[s]. Use "%s --help" to explain all required options.' % (sys.argv[0])
+    exit(nagios.unknown, message)
+
+if o.host is None:
+     message = 'Missing hostname option. Use "%s --help" to explain all required options.' % (sys.argv[0])
+     exit(nagios.unknown, message)
+
+target = args.pop(0)
+
+if o.username is not None and o.password is not None:
+    pm = urllib2.HTTPPasswordMgrWithDefaultRealm()
+    pm.add_password(realm=None,
+                    uri='http://%s:%d/' % (o.host, o.port),
+                    user=o.username,
+                    passwd=o.password)
+    handler = urllib2.HTTPBasicAuthHandler(pm)
+    opener = urllib2.build_opener(handler)
+    urllib2.install_opener(opener)
+
+es_url = 'http://%s:%d/_cluster/nodes/%s' % (o.host, o.port, target)
+
+try:
+    try:
+        signal.alarm(int(o.timeout))
+        f = urllib2.urlopen(es_url)
+    except HTTPError, e:
+        exit(nagios.unknown, 'HTTP error for %s, error code is %s' % (es_url, e))
+        # see codes in http://www.faqs.org/rfcs/rfc2616.html
+    except URLError, e:
+        exit(nagios.unknown, 'URL error for %s, error code %s' % (es_url, e))
+    except TimeoutException, e:
+        exit(nagios.unknown, 'Timeout accessing http://%s:%d' % (o.host, o.port))
+
+    try:
+        j = simplejson.load(f)
+    except:
+        exit(nagios.unknown, 'Unable to parse json from http://%s:%d' % (o.host, o.port))
+
+finally:
+    signal.alarm(0)
+
+k = j['nodes'].keys()
+
+if len(k) == 0:
+    # Node doesn't exist in the cluster
+    exit(nagios.critical, '%s not present at http://%s:%d' % (target, o.host, o.port))
+elif len(k) > 1:
+    # More than one node is returned, something odd happened
+    exit(nagios.unknown, 'more than one node returned for %s' % target)
+
+if target not in set([j['nodes'][k[0]]['hostname'], j['nodes'][k[0]]['name']]):
+    # One node returned, however fqdn or hostname doesn't match
+    exit(nagios.unknown, '%s mismatched at http://%s:%d' % (target, o.host, o.port))
+
+# One node returned, hostnames match
+exit(nagios.ok, '%s present at http://%s:%d' % (target, o.host, o.port))

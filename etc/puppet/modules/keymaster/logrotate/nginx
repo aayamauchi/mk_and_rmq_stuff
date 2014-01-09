@@ -1,0 +1,12 @@
+/var/log/keymaster/nginx-access.log /var/log/keymaster/nginx-error.log {
+    daily
+    size 10M
+    rotate 10
+    missingok
+    notifempty
+    compress
+    sharedscripts
+    postrotate
+        [ ! -f /var/run/keymaster/nginx.pid ] || kill -USR1 `cat /var/run/keymaster/nginx.pid`
+    endscript
+}

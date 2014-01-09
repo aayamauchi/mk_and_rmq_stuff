@@ -1,0 +1,17 @@
+#!/usr/local/bin/bash
+
+# set up a few variables before initializing the ssh connection.
+
+HOST=`echo $NAGIOS_SERVICEOUTPUT | cut -d\  -f 11`
+CRON=${NAGIOS_SERVICEDESC:21}
+CLSTR=`echo $NAGIOS_SERVICEOUTPUT | cut -d\  -f 6 | tr -d \'`
+TAIL="tail -1 /usr/local/ironport/sbrs_logs/source_${CRON}.log"
+
+GREP=`/usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${HOST} "${TAIL}" | grep "Lost connection to MySQL"`
+if [ "${GREP}" != "" ]
+then
+    echo 'Attempting to automatically clear lock due to lost MySQL connection.'
+    /usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${HOST} "appruncrons $CLSTR update_$CRON clear"
+else
+    echo 'Does not appear to be a MySQL issue, leaving lock alone.'
+fi

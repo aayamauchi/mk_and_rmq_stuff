@@ -1,0 +1,6 @@
+TIMEOUT=/usr/local/ironport/nagios/bin/timeout.pl
+
+echo SHOW FULL PROCESSLIST:
+echo "show full processlist" | $TIMEOUT 5 mysql -u nagios -pthaxu1T -h${NAGIOS_HOSTADDRESS}
+echo SHOW SLAVE STATUS:
+echo "show slave status" | $TIMEOUT 5 mysql -u nagios -pthaxu1T -h${NAGIOS_HOSTADDRESS}

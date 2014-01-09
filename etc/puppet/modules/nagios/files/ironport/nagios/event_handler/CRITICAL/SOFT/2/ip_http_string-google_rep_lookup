@@ -1,0 +1,92 @@
+#!/usr/local/bin/bash
+#==============================================================================
+# ip_http_string-google_rep_lookup
+#
+# If the hostname matches sb-www*, then sb-www services are restarted
+# and email is sent to ops alerts if certain conditions are met (see NOTICE).
+#
+# You'll need to modify this script to perform any actions on hosts
+# other than sb-www*.
+#
+# ----------------
+#     NOTICE
+# ----------------
+# The sb-www* cluster has multiple event handlers that will
+# potentially restart apache.  Therefore, we try to limit restart
+# requests by throttling them to occur no more than once every 5
+# minutes.
+#
+# If apache is not responding at all (i.e., we can't determine last
+# restart time), then only one event handler will be granted the right
+# to restart apache. This is determined by setting
+# RESTART_UNRESPONSIVE to "YES" on only one of these handlers.
+#
+# IF YOU HAVE REMOVED ONE OF THESE EVENT HANDLERS, MAKE SURE AT LEAST
+# ONE OF THE REMAINING ONES HAS RESTART_UNRESPONSIVE SET TO YES.
+#==============================================================================
+RESTART_UNRESPONSIVE="NO"   # will this handler restart unresponsive apache? YES or NO
+RESTART_THRESHOLD=300       # time since last restart threshold, in seconds
+STATUS_TIMEOUT=30           # timeout, in seonds, to retrieve apache status
+
+RestartEligible() {
+    SERVER="${NAGIOS_HOSTADDRESS}"
+    UNRESPONSIVE=1
+    DO_RESTART=1
+    # Check last restart time of apache
+    RESTART_RESULT=`fetch -T${STATUS_TIMEOUT} -q -o - "http://${SERVER}/server-status"  2>/dev/null`
+    if [ ${?} -ne 0 ]; then
+        echo "Unable to query apache server status in a timely manner (${STATUS_TIMEOUT} seconds)."
+        UNRESPONSIVE=0
+    else
+        RESTART_RESULT=`echo "${RESTART_RESULT}" | grep -i "restart time:" 2>/dev/null`
+        if [ ${?} -ne 0 ]; then
+            echo "Obtained server status, but last restart time is unavailable. Exiting."
+            exit 1
+        else
+            RESTART_RESULT=`echo "${RESTART_RESULT}" | head -1`
+        fi
+    fi
+
+    if [ ${UNRESPONSIVE} -eq 0 ]; then
+        if [ "${RESTART_UNRESPONSIVE}" = "YES" ]; then
+            echo "This handler is configured to restart an unresponsive apache instance."
+            DO_RESTART=0
+        else
+            echo "This handler is not configured to restart an unresponsive apache instance. Exiting."
+        fi
+    else
+        RESTART_FULLTIME=`expr "${RESTART_RESULT}" : '^<[^>]*> *[Rr]estart [Tt]ime: *\([^<]*\)<[^>]*>$' 2>/dev/null`
+        RESTART_UNIXTIME=`date -jf "%A, %d-%b-%Y %H:%M:%S %Z" "${RESTART_FULLTIME}" +"%s" 2>/dev/null`
+        if [ ${?} -ne 0 ]; then
+            echo "Retrieved last restart time, but unable to parse. Exiting."
+            exit 1
+        fi
+
+        NOW_UNIXTIME=`date +%s`
+        DIFF=$(( ${NOW_UNIXTIME} - ${RESTART_UNIXTIME} ))
+        if [ ${DIFF} -gt ${RESTART_THRESHOLD} ]; then
+            echo "Restarting apache since it was last restarted more than ${RESTART_THRESHOLD} seconds ago (${DIFF} seconds to be exact)."
+            DO_RESTART=0
+        else
+            echo "Not restarting apache because it was restarted less than ${RESTART_THRESHOLD} seconds ago. Exiting."
+        fi
+    fi
+
+    return ${DO_RESTART}
+}
+
+if [[ "$NAGIOS_HOSTNAME" == sb-www* ]]; then
+    if RestartEligible ; then
+        CMD="sudo /usr/local/ironport/sysops/sb-www/sbwww-rc.sh restart"
+        /usr/bin/ssh -o StrictHostKeyChecking=no -i ~nagios/.ssh/id_rsa nagios@${NAGIOS_HOSTADDRESS} "${CMD}"
+
+        MESG="The following command was executed on ${NAGIOS_HOSTNAME} in response to\n"
+        MESG="${MESG}ip_http_string-google_rep_lookup (CRITICAL/SOFT/2):\n\n"
+        MESG="${MESG}${CMD}\n\n"
+        MESG="${MESG}Will escalate if problem continues."
+
+        /usr/local/ironport/nagios/bin/ironcat.sh "nagios restarted sbwww-rc.sh on ${NAGIOS_HOSTADDRESS}"
+        printf "%b" "${MESG}" | mail -s "NAGIOS event: ip_http_string-google_rep_lookup" stbu-ops-alerts@cisco.com
+    fi
+fi
+exit 0

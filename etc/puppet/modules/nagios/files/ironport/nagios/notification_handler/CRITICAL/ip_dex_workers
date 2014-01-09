@@ -1,0 +1,1 @@
+ssh ${NAGIOS_HOSTADDRESS} 'echo ==== /var/log/messages ====; tail -10 /var/log/messages; echo ==== wbnp_data_server.log ====; tail -200 /data/var/log/web_corpus/wbnp_data_server.log'

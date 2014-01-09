@@ -258,6 +258,17 @@ rmdir %{buildroot}%{_prefix}/lib/check_mk
 %{_datadir}/check-mk-livestatus
 
 %changelog
+* Thu Jan 09 2014 Alex Yamauchi <ayamauch@cisco.com> - 1.2.2p2-3.*.1.cisco
+- Branching a custom build off of the EPEL release 3 of check-mk
+  version 1.2.2p2 packaging (1.2.2p2-3).  The major issues addressed
+	by the rebuild:
+    - fixed a bunch of misspecified package dependencies,
+		- added the "-utils" subpackage to resolve the shared dependencies on
+		  tools, such "unixcat" in a sane way,
+		- removed the live xinetd delivery for check-mk-agent, since it
+		  results in multiple definitions after an update (moved to shared),
+		- added the default xinetd configuration for the livestatus module.
+
 * Wed Oct 02 2013 Andrea Veri <averi@fedoraproject.org> - 1.2.2p2-3
 - Start building the debuginfo package again, seems the issue is
   related to the buildarch being noarch which turns all the subpackages

@@ -31,6 +31,16 @@ It obsoletes NRPE, check_by_ssh, NSClient, and check_snmp and it has many
 benefits, the most important are a significant reduction of CPU usage on
 the Nagios host and an automatic inventory of items to be checked on hosts.
 
+%package utils
+Summary: General purpose utilities
+Group: Applications/System
+
+%description utils
+These are general-purpose system utils built with the check_mk sources.
+Some or all of the component packages need these tools for certain
+functionality, and other software my need these tools for purposes
+completely unrelated to monitoring.
+
 %package agent
 Summary:	The check-mk's Agent
 Group:		Applications/Internet
@@ -206,7 +216,6 @@ rmdir %{buildroot}%{_prefix}/lib/check_mk
 
 %files
 %{_bindir}/cmk
-%{_bindir}/mkp
 %{_bindir}/check_mk
 %config(noreplace) %{_sysconfdir}/check_mk/main.mk
 %config(noreplace) %{_sysconfdir}/check_mk/main.mk-1.2.2p2
@@ -223,9 +232,13 @@ rmdir %{buildroot}%{_prefix}/lib/check_mk
 %attr(755, nagios, nagios) %{_localstatedir}/lib/check_mk/*
 %doc COPYING ChangeLog AUTHORS
 
+%files utils
+%{_bindir}/waitmax
+%{_bindir}/unixcat
+%{_bindir}/mkp
+
 %files agent
 %{_bindir}/check_mk_agent
-%{_bindir}/waitmax
 %{_datadir}/check-mk-agent
 %config(noreplace) %{_sysconfdir}/check-mk-agent
 %doc COPYING
@@ -241,7 +254,6 @@ rmdir %{buildroot}%{_prefix}/lib/check_mk
 %attr(660, apache, nagios) %{_sysconfdir}/check_mk/conf.d/wato
 
 %files livestatus
-%{_bindir}/unixcat
 %{_libdir}/check_mk/*
 %{_datadir}/check-mk-livestatus
 

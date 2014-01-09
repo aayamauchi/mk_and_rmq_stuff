@@ -1,0 +1,53 @@
+#!/usr/bin/env python
+
+import pika
+import json
+from optparse import OptionParser
+
+def parse_option():
+
+	parser = OptionParser()
+
+	parser.add_option(
+		'-q', '--queue', type='string', dest='queue',
+		default='notification',
+		help='Queue to append'
+	)
+	parser.add_option(
+		'-c', '--command', type='string', dest='command',
+		default='/usr/local/ironport/nagios/customplugins/notification_feeder.py',
+		help='The command that this injector is queuing'
+	)
+	parser.add_option(
+		'-a', '--arglist', type='string', dest='arglist',
+		default='',
+		help='The arglist for the command that this injector is queuing'
+	)
+
+	(option, args) = parser.parse_args()
+
+	return option
+
+def enqueue():
+
+	connection = pika.BlockingConnection(
+		pika.ConnectionParameters(
+			'localhost'
+		) 
+	)
+	channel = connection.channel()
+	channel.queue_declare(queue=option.queue)
+	channel.basic_publish(
+		exchange = '',
+		routing_key = option.queue,
+		body = json.write(option.__dict__)
+	)
+
+	connection.close()
+
+	print json.write(option.__dict__)
+
+if __name__ == '__main__':
+
+	option = parse_option()
+	enqueue()

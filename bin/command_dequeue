@@ -1,0 +1,45 @@
+#!/usr/bin/env python
+
+import pika
+import json
+from optparse import OptionParser
+
+def parse_option():
+
+	parser = OptionParser()
+
+	parser.add_option(
+		'-q', '--queue', type='string', dest='queue',
+		default='notification',
+		help='Queue to append'
+	)
+
+	(option, args) = parser.parse_args()
+
+	return option
+
+def callback(ch, method, properties, body):
+	# Replace this with a shell exec to basically make a distributed scheduler.
+	print "Received the following JSON"
+
+	print json.read(body)
+
+if __name__ == '__main__':
+
+	option = parse_option()
+	connection = pika.BlockingConnection(
+		pika.ConnectionParameters(
+	  	host='localhost'
+		)
+	)
+	channel = connection.channel()
+	channel.queue_declare(queue=option.queue)
+
+	channel.basic_consume(
+		callback,
+		queue=option.queue,
+		no_ack=True
+	)
+
+	channel.start_consuming
+

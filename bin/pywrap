@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+# Until I figure out where the lib goes, wrap this
+# so that we can transparently add the path.
+
+#PYTHONLIB=$( cd ${0%/*} ; pwd | sed -e 's@/[^/]*$@@' )/lib/python
+: ${PYTHONLIB:=${HOME}/workspace/monitoring/lib/python}
+export PYTHONLIB
+exec /usr/bin/env python "${@}"

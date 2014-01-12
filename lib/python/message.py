@@ -49,12 +49,19 @@ class message:
 		else:
 			self.envelope = envelope()
 
-		self.data = kwargs
+		if len(kwargs) > 0:
+			self.data = kwargs
+		else:
+			self.data = {}
 		
 		return None
 
 	def __call__(self,*args,**kwargs):
-		return {'envelope': self.envelope(), 'message': self.data }
+		if len(kwargs) > 0:
+			data = kwargs
+		else:
+			data = self.data
+		return {'envelope': self.envelope(), 'message': data }
 	
 	def __repr__(self):
 		return json.write(self.__call__())
@@ -64,6 +71,6 @@ class message:
 			return self.envelope()
 		else:
 			return self.data
-
+	
 if __name__ == '__main__':
 	test_obj = message()

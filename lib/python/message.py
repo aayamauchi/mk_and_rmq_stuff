@@ -43,9 +43,9 @@ class envelope:
 
 class message:
 	def __init__(self,*args,**kwargs):
-		if kwargs.has_key('message_envelope'):
-			self.envelope = envelope(**kwargs['message_envelope'])
-			del kwargs['message_envelope']
+		if kwargs.has_key('envelope'):
+			self.envelope = envelope(**kwargs['envelope'])
+			del kwargs['envelope']
 		else:
 			self.envelope = envelope()
 
